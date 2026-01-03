@@ -12,15 +12,62 @@ public struct Ledger: Sendable {
 
     public mutating func addTransaction(_ tx: Transaction) throws {
         try tx.validate()
-
-        // Ensure all referenced accounts exist
-        for p in tx.postings {
-            guard accounts[p.accountID] != nil else {
-                throw LedgerError.unknownAccount(p.accountID)
-            }
-        }
-
+        try ensureAccountsExist(for: tx)
         transactions.append(tx)
+    }
+
+    public mutating func updateDraftTransaction(
+        id: TransactionID,
+        now: Date = Date(),
+        _ edit: (inout Transaction) -> Void
+    ) throws {
+        let idx = try indexOfTransaction(id)
+        var tx = transactions[idx]
+
+        guard tx.state == .draft else { throw LedgerError.transactionFinalized(id) }
+
+        edit(&tx)
+        tx.touch(now: now)
+
+        try tx.validate()
+        try ensureAccountsExist(for: tx)
+
+        transactions[idx] = tx
+    }
+
+    public mutating func finalizeTransaction(id: TransactionID, now: Date = Date()) throws {
+        let idx = try indexOfTransaction(id)
+        var tx = transactions[idx]
+
+        guard tx.state == .draft else { return } // idempotent
+
+        try tx.validate()
+        tx.finalize(now: now)
+        transactions[idx] = tx
+    }
+
+    public mutating func deleteDraftTransaction(id: TransactionID) throws {
+        let idx = try indexOfTransaction(id)
+        let tx = transactions[idx]
+        guard tx.state == .draft else { throw LedgerError.transactionFinalized(id) }
+        transactions.remove(at: idx)
+    }
+
+    public func exportFinalizedSnapshot() -> Ledger {
+        var out = Ledger()
+        out.accounts = self.accounts
+        out.transactions = self.transactions.filter { $0.state == .finalized }
+        return out
+    }
+
+    /// Returns transactions sorted by (date asc, id asc) for stable output.
+    public func allTransactionsSorted(includeDrafts: Bool = true) -> [Transaction] {
+        let base = includeDrafts ? transactions : transactions.filter { $0.state == .finalized }
+        return base.sorted {
+            if $0.date != $1.date { return $0.date < $1.date }
+            if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
+            return $0.id.rawValue.uuidString < $1.id.rawValue.uuidString
+        }
     }
 
     public func balance(of accountID: AccountID, currency: Currency) -> Money {
@@ -30,6 +77,23 @@ public struct Ledger: Sendable {
             .reduce(Decimal.zero) { $0 + $1.money.amount }
 
         return Money(total, currency: currency)
+    }
+
+    // MARK: - Helpers
+
+    private func indexOfTransaction(_ id: TransactionID) throws -> Int {
+        guard let idx = transactions.firstIndex(where: { $0.id == id }) else {
+            throw LedgerError.transactionNotFound(id)
+        }
+        return idx
+    }
+
+    private func ensureAccountsExist(for tx: Transaction) throws {
+        for p in tx.postings {
+            guard accounts[p.accountID] != nil else {
+                throw LedgerError.unknownAccount(p.accountID)
+            }
+        }
     }
 }
 
@@ -43,7 +107,9 @@ extension Ledger: Codable {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(Array(accounts.values), forKey: .accounts)
+        try c.encode(accounts.values.sorted { 
+            $0.id.rawValue.uuidString < $1.id.rawValue.uuidString 
+        }, forKey: .accounts)
         try c.encode(transactions, forKey: .transactions)
     }
 

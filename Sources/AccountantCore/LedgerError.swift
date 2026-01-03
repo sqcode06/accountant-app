@@ -5,4 +5,7 @@ public enum LedgerError: Error, Equatable {
     case mixedCurrencies
     case unbalancedTransaction(sum: Decimal)
     case emptyTransaction
+
+    case transactionNotFound(TransactionID)
+    case transactionFinalized(TransactionID)
 }

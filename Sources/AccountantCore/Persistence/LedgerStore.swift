@@ -20,11 +20,42 @@ public struct JSONLedgerStore: LedgerStore {
 
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        enc.dateEncodingStrategy = .iso8601
+
+        // Encode Date as a number (seconds since 1970) to preserve precision.
+        enc.dateEncodingStrategy = .custom { date, encoder in
+            var c = encoder.singleValueContainer()
+            try c.encode(date.timeIntervalSince1970)
+        }
         self.encoder = enc
 
         let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
+
+        // Decode from either:
+        // 1) Double seconds (new format)
+        // 2) ISO8601 string (old format, for backward compat)
+        dec.dateDecodingStrategy = .custom { decoder in
+            let c = try decoder.singleValueContainer()
+
+            if let t = try? c.decode(Double.self) {
+                return Date(timeIntervalSince1970: t)
+            }
+
+            // Backward compatible: accept old ISO8601 strings
+            let s = try c.decode(String.self)
+
+            let isoFrac = ISO8601DateFormatter()
+            isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let d = isoFrac.date(from: s) { return d }
+
+            let isoNoFrac = ISO8601DateFormatter()
+            isoNoFrac.formatOptions = [.withInternetDateTime]
+            if let d = isoNoFrac.date(from: s) { return d }
+
+            throw DecodingError.dataCorruptedError(
+                in: c,
+                debugDescription: "Invalid date value: \(s)"
+            )
+        }
         self.decoder = dec
     }
 
@@ -36,7 +67,7 @@ public struct JSONLedgerStore: LedgerStore {
         let data = try Data(contentsOf: fileURL)
         let persisted = try decoder.decode(PersistedLedger.self, from: data)
 
-        guard persisted.schemaVersion == PersistedLedger.currentSchemaVersion else {
+        guard persisted.schemaVersion <= PersistedLedger.currentSchemaVersion else {
             throw LedgerStoreError.unsupportedSchemaVersion(persisted.schemaVersion)
         }
 
