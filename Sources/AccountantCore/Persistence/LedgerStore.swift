@@ -21,26 +21,35 @@ public struct JSONLedgerStore: LedgerStore {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
 
-        // Encode Date as a number (seconds since 1970) to preserve precision.
         enc.dateEncodingStrategy = .custom { date, encoder in
             var c = encoder.singleValueContainer()
-            try c.encode(date.timeIntervalSince1970)
+            let bits = date.timeIntervalSince1970.bitPattern
+            // Store as hex string (JSON-safe, exact, platform-independent)
+            try c.encode(String(bits, radix: 16))
         }
         self.encoder = enc
 
         let dec = JSONDecoder()
 
         // Decode from either:
-        // 1) Double seconds (new format)
+        // 1) New format: hex string bitPattern
+        // 2) Double seconds (new format)
         // 2) ISO8601 string (old format, for backward compat)
         dec.dateDecodingStrategy = .custom { decoder in
             let c = try decoder.singleValueContainer()
 
+            // New format: hex string bitPattern
+            if let s = try? c.decode(String.self),
+            let bits = UInt64(s, radix: 16) {
+                return Date(timeIntervalSince1970: Double(bitPattern: bits))
+            }
+
+            // Older format you used: JSON number
             if let t = try? c.decode(Double.self) {
                 return Date(timeIntervalSince1970: t)
             }
 
-            // Backward compatible: accept old ISO8601 strings
+            // Even older: ISO8601 string fallback
             let s = try c.decode(String.self)
 
             let isoFrac = ISO8601DateFormatter()
@@ -51,10 +60,7 @@ public struct JSONLedgerStore: LedgerStore {
             isoNoFrac.formatOptions = [.withInternetDateTime]
             if let d = isoNoFrac.date(from: s) { return d }
 
-            throw DecodingError.dataCorruptedError(
-                in: c,
-                debugDescription: "Invalid date value: \(s)"
-            )
+            throw DecodingError.dataCorruptedError(in: c, debugDescription: "Invalid date value: \(s)")
         }
         self.decoder = dec
     }
