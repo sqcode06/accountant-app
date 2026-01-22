@@ -35,6 +35,16 @@ public enum TransactionState: String, Codable, Sendable {
     case finalized
 }
 
+public struct TransactionOrigin: Hashable, Codable, Sendable {
+    public var source: String
+    public var externalID: String
+
+    public init(source: String, externalID: String) {
+        self.source = source
+        self.externalID = externalID
+    }
+}
+
 public struct Transaction: Hashable, Codable, Sendable {
     public let id: TransactionID
 
@@ -42,6 +52,7 @@ public struct Transaction: Hashable, Codable, Sendable {
     public var date: Date
 
     public var memo: String?
+    public var origin: TransactionOrigin?
     public var postings: [Posting]
 
     public private(set) var state: TransactionState
@@ -57,7 +68,8 @@ public struct Transaction: Hashable, Codable, Sendable {
         state: TransactionState = .draft,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
-        finalizedAt: Date? = nil
+        finalizedAt: Date? = nil,
+        origin: TransactionOrigin? = nil
     ) {
         self.id = id
         self.date = date
@@ -67,6 +79,7 @@ public struct Transaction: Hashable, Codable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
         self.finalizedAt = finalizedAt
+        self.origin = origin
 
         if state == .finalized, self.finalizedAt == nil {
             self.finalizedAt = self.updatedAt
@@ -123,7 +136,7 @@ public struct Transaction: Hashable, Codable, Sendable {
 
     // MARK: - Backward compatible decoding (older files won’t have new keys)
     private enum CodingKeys: String, CodingKey {
-        case id, date, memo, postings, state, createdAt, updatedAt, finalizedAt
+        case id, date, memo, postings, state, createdAt, updatedAt, finalizedAt, origin
     }
 
     public init(from decoder: Decoder) throws {
@@ -140,6 +153,7 @@ public struct Transaction: Hashable, Codable, Sendable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? date
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
         finalizedAt = try c.decodeIfPresent(Date.self, forKey: .finalizedAt)
+        origin = try c.decodeIfPresent(TransactionOrigin.self, forKey: .origin)
 
         if state == .finalized, finalizedAt == nil {
             finalizedAt = updatedAt

@@ -95,6 +95,40 @@ public struct Ledger: Sendable {
             }
         }
     }
+
+    // MARK: - Internal hooks (module-only)
+
+    internal mutating func _setAccount(_ account: Account) {
+        accounts[account.id] = account
+    }
+
+    internal mutating func _appendTransaction(_ tx: Transaction) {
+        transactions.append(tx)
+    }
+
+    internal mutating func _replaceTransaction(id: TransactionID, with tx: Transaction) throws {
+        // "replace" must not change identity.
+        precondition(tx.id == id, "Attempted to replace transaction \(id) with different id \(tx.id). Use remove+append semantics instead.")
+        guard let idx = transactions.firstIndex(where: { $0.id == id }) else {
+            throw LedgerError.transactionNotFound(id)
+        }
+        transactions[idx] = tx
+    }
+
+    internal mutating func _removeTransaction(id: TransactionID) throws {
+        guard let idx = transactions.firstIndex(where: { $0.id == id }) else {
+            throw LedgerError.transactionNotFound(id)
+        }
+        transactions.remove(at: idx)
+    }
+
+    internal mutating func _reorderTransactionsCanonically() {
+        transactions.sort {
+            if $0.date != $1.date { return $0.date < $1.date }
+            if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
+            return $0.id.rawValue.uuidString < $1.id.rawValue.uuidString
+        }
+    }
 }
 
 extension Ledger: Equatable {}
