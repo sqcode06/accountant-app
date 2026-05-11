@@ -10,13 +10,44 @@ public struct Ledger: Sendable {
         accounts[account.id] = account
     }
 
+    public mutating func renameAccount(id: AccountID, to newName: String) throws {
+        guard var account = accounts[id] else {
+            throw LedgerError.accountNotFound(id)
+        }
+
+        account.name = newName
+        accounts[id] = account
+    }
+
+    public mutating func archiveAccount(id: AccountID) throws {
+        guard var account = accounts[id] else {
+            throw LedgerError.accountNotFound(id)
+        }
+
+        guard !hasOpenDrafts(involving: id) else {
+            throw LedgerError.accountHasOpenDrafts(id)
+        }
+
+        account.status = .archived
+        accounts[id] = account
+    }
+
+    public mutating func restoreAccount(id: AccountID) throws {
+        guard var account = accounts[id] else {
+            throw LedgerError.accountNotFound(id)
+        }
+
+        account.status = .active
+        accounts[id] = account
+    }
+
     public mutating func addTransaction(_ tx: Transaction) throws {
         guard !transactions.contains(where: { $0.id == tx.id }) else {
             throw LedgerError.duplicateTransactionID(tx.id)
         }
 
         try tx.validate()
-        try ensureAccountsExist(for: tx)
+        try ensureAccountsExistAndAreActive(for: tx)
         
         transactions.append(tx)
     }
@@ -35,7 +66,7 @@ public struct Ledger: Sendable {
         tx.touch(now: now)
 
         try tx.validate()
-        try ensureAccountsExist(for: tx)
+        try ensureAccountsExistAndAreActive(for: tx)
 
         transactions[idx] = tx
     }
@@ -47,6 +78,7 @@ public struct Ledger: Sendable {
         guard tx.state == .draft else { return } // idempotent
 
         try tx.validate()
+        try ensureAccountsExistAndAreActive(for: tx)
         tx.finalize(now: now)
         transactions[idx] = tx
     }
@@ -93,10 +125,28 @@ public struct Ledger: Sendable {
         return idx
     }
 
+    private func hasOpenDrafts(involving accountID: AccountID) -> Bool {
+        transactions.contains { tx in
+            tx.state == .draft && tx.postings.contains { $0.accountID == accountID }
+        }
+    }
+
     private func ensureAccountsExist(for tx: Transaction) throws {
         for p in tx.postings {
             guard accounts[p.accountID] != nil else {
                 throw LedgerError.unknownAccount(p.accountID)
+            }
+        }
+    }
+
+    private func ensureAccountsExistAndAreActive(for tx: Transaction) throws {
+        for p in tx.postings {
+            guard let account = accounts[p.accountID] else {
+                throw LedgerError.unknownAccount(p.accountID)
+            }
+
+            guard account.status == .active else {
+                throw LedgerError.accountArchived(p.accountID)
             }
         }
     }

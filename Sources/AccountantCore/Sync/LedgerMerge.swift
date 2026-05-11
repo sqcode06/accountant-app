@@ -1,6 +1,6 @@
 import Foundation
 
-public enum AccountNameResolution: Sendable {
+public enum AccountConflictResolution: Sendable {
     case keepLocal
     case preferIncoming
     case error
@@ -13,7 +13,7 @@ public enum TransactionConflictResolution: Sendable {
 }
 
 public struct LedgerMergeOptions: Sendable {
-    public var accountNameResolution: AccountNameResolution = .keepLocal
+    public var accountConflictResolution: AccountConflictResolution = .keepLocal
     public var transactionConflictResolution: TransactionConflictResolution = .error
     public var deduplicateByOrigin: Bool = true
 
@@ -22,6 +22,7 @@ public struct LedgerMergeOptions: Sendable {
 
 public enum LedgerMergeConflict: Sendable, Hashable {
     case accountNameMismatch(accountID: AccountID, local: String, incoming: String)
+    case accountMismatch(accountID: AccountID, local: Account, incoming: Account)
     case transactionIDMismatch(id: TransactionID)
     case transactionOriginMismatch(origin: TransactionOrigin)
 }
@@ -95,15 +96,23 @@ public extension Ledger {
         // MARK: Merge accounts
         for acc in incoming.accounts.values {
             if let local = accounts[acc.id] {
-                if local.name != acc.name {
-                    switch options.accountNameResolution {
+                if local != acc {
+                    switch options.accountConflictResolution {
                     case .keepLocal:
-                        report.conflicts.append(.accountNameMismatch(accountID: acc.id, local: local.name, incoming: acc.name))
+                        if local.name != acc.name {
+                            report.conflicts.append(.accountNameMismatch(accountID: acc.id, local: local.name, incoming: acc.name))
+                        } else {
+                            report.conflicts.append(.accountMismatch(accountID: acc.id, local: local, incoming: acc))
+                        }
                     case .preferIncoming:
                         _setAccount(acc)
                         report.updatedAccounts += 1
                     case .error:
-                        throw LedgerMergeError.accountNameMismatch(accountID: acc.id, local: local.name, incoming: acc.name)
+                        if local.name != acc.name {
+                            throw LedgerMergeError.accountNameMismatch(accountID: acc.id, local: local.name, incoming: acc.name)
+                        } else {
+                            throw LedgerMergeError.accountMismatch(accountID: acc.id, local: local, incoming: acc)
+                        }
                     }
                 }
             } else {
@@ -129,7 +138,11 @@ public extension Ledger {
         let incomingFinalized = incoming.transactions.filter { $0.state == .finalized }
 
         for inc in incomingFinalized {
-            try inc.validate()
+            do {
+                try inc.validate()
+            } catch {
+                throw LedgerMergeError.incomingTransactionInvalid(inc.id)
+            }
 
             // Ensure accounts exist (after account merge)
             for p in inc.postings {

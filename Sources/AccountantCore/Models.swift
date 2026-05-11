@@ -10,13 +10,51 @@ public struct TransactionID: Hashable, Codable, Sendable {
     public init(_ rawValue: UUID = UUID()) { self.rawValue = rawValue }
 }
 
+public enum AccountKind: String, Hashable, Codable, Sendable {
+    case asset
+    case liability
+    case income
+    case expense
+    case equity
+    case clearing
+}
+
+public enum AccountStatus: String, Hashable, Codable, Sendable {
+    case active
+    case archived
+}
+
 public struct Account: Hashable, Codable, Sendable {
     public let id: AccountID
     public var name: String
+    public var kind: AccountKind
+    public var status: AccountStatus
 
-    public init(id: AccountID = AccountID(), name: String) {
+    public init(
+        id: AccountID = AccountID(),
+        name: String,
+        kind: AccountKind = .asset,
+        status: AccountStatus = .active
+    ) {
         self.id = id
         self.name = name
+        self.kind = kind
+        self.status = status
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, kind, status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        self.id = try c.decode(AccountID.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+
+        // Backward compatibility for ledgers saved before account taxonomy existed.
+        self.kind = try c.decodeIfPresent(AccountKind.self, forKey: .kind) ?? .asset
+        self.status = try c.decodeIfPresent(AccountStatus.self, forKey: .status) ?? .active
     }
 }
 
@@ -100,10 +138,16 @@ public struct Transaction: Hashable, Codable, Sendable {
         postings: [Posting]
     ) -> Transaction {
         let now = Date()
-        return Transaction(date: date, memo: memo, postings: postings, state: .finalized,
-                        createdAt: now, updatedAt: now, finalizedAt: now)
+        return Transaction(
+            date: date,
+            memo: memo,
+            postings: postings,
+            state: .finalized,
+            createdAt: now,
+            updatedAt: now,
+            finalizedAt: now
+        )
     }
-
 
     /// Validates classic double-entry invariant:
     /// - at least 2 postings

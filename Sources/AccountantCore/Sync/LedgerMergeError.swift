@@ -2,6 +2,7 @@ import Foundation
 
 public enum LedgerMergeError: Error, Equatable, Sendable {
     case accountNameMismatch(accountID: AccountID, local: String, incoming: String)
+    case accountMismatch(accountID: AccountID, local: Account, incoming: Account)
 
     case incomingTransactionNotFinalized(TransactionID)
     case incomingTransactionInvalid(TransactionID)
