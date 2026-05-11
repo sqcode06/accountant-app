@@ -11,8 +11,13 @@ public struct Ledger: Sendable {
     }
 
     public mutating func addTransaction(_ tx: Transaction) throws {
+        guard !transactions.contains(where: { $0.id == tx.id }) else {
+            throw LedgerError.duplicateTransactionID(tx.id)
+        }
+
         try tx.validate()
         try ensureAccountsExist(for: tx)
+        
         transactions.append(tx)
     }
 

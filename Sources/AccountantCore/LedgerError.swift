@@ -8,4 +8,5 @@ public enum LedgerError: Error, Equatable {
 
     case transactionNotFound(TransactionID)
     case transactionFinalized(TransactionID)
+    case duplicateTransactionID(TransactionID)
 }
