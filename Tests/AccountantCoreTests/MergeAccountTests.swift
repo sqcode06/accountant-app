@@ -14,7 +14,7 @@ final class MergeAccountTests: XCTestCase {
         incoming.addAccount(incomingAccount)
 
         var options = LedgerMergeOptions()
-        options.accountNameResolution = .error
+        options.accountConflictResolution = .error
 
         XCTAssertThrowsError(try local.mergeFinalized(from: incoming, options: options)) { error in
             guard case LedgerMergeError.accountMismatch(let accountID, let localValue, let incomingValue) = error else {
@@ -41,7 +41,7 @@ final class MergeAccountTests: XCTestCase {
         incoming.addAccount(incomingAccount)
 
         var options = LedgerMergeOptions()
-        options.accountNameResolution = .keepLocal
+        options.accountConflictResolution = .keepLocal
 
         let report = try local.mergeFinalized(from: incoming, options: options)
 
@@ -62,7 +62,7 @@ final class MergeAccountTests: XCTestCase {
         incoming.addAccount(incomingAccount)
 
         var options = LedgerMergeOptions()
-        options.accountNameResolution = .preferIncoming
+        options.accountConflictResolution = .preferIncoming
 
         let report = try local.mergeFinalized(from: incoming, options: options)
 
