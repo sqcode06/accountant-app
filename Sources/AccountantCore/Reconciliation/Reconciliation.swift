@@ -41,20 +41,41 @@ public struct ReconciliationReport: Hashable, Codable, Sendable {
 }
 
 public extension Ledger {
+    /// Compares the ledger balance of one account against a statement balance.
+    ///
+    /// Reconciliation is read-only. Archived accounts remain reconcilable because
+    /// historical balances are still meaningful after an account is closed.
+    /// Drafts are excluded by default because reconciliation should normally
+    /// compare trusted ledger facts against an external statement.
     func reconcileAccount(
         _ accountID: AccountID,
         statementBalance: Money,
         asOf date: Date,
         includeDrafts: Bool = false
     ) throws -> ReconciliationReport {
-        ReconciliationReport(
+        guard accounts[accountID] != nil else {
+            throw ReconciliationError.unknownAccount(accountID)
+        }
+
+        let ledgerBalance = balance(
+            of: accountID,
+            currency: statementBalance.currency,
+            asOf: date,
+            includeDrafts: includeDrafts
+        )
+
+        let differenceAmount = statementBalance.amount - ledgerBalance.amount
+        let difference = Money(differenceAmount, currency: statementBalance.currency)
+        let status: ReconciliationStatus = differenceAmount == Decimal.zero ? .matched : .mismatched
+
+        return ReconciliationReport(
             accountID: accountID,
             currency: statementBalance.currency,
             asOf: date,
-            ledgerBalance: .zero(currency: statementBalance.currency),
+            ledgerBalance: ledgerBalance,
             statementBalance: statementBalance,
-            difference: statementBalance,
-            status: statementBalance.amount == Decimal.zero ? .matched : .mismatched,
+            difference: difference,
+            status: status,
             includeDrafts: includeDrafts
         )
     }
