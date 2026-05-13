@@ -93,9 +93,11 @@ public extension Ledger {
     mutating func mergeFinalized(from incoming: Ledger, options: LedgerMergeOptions = .init()) throws -> LedgerMergeReport {
         var report = LedgerMergeReport()
 
+        var working = self
+
         // MARK: Merge accounts
         for acc in incoming.accounts.values {
-            if let local = accounts[acc.id] {
+            if let local = working.accounts[acc.id] {
                 if local != acc {
                     switch options.accountConflictResolution {
                     case .keepLocal:
@@ -105,7 +107,7 @@ public extension Ledger {
                             report.conflicts.append(.accountMismatch(accountID: acc.id, local: local, incoming: acc))
                         }
                     case .preferIncoming:
-                        _setAccount(acc)
+                        working._setAccount(acc)
                         report.updatedAccounts += 1
                     case .error:
                         if local.name != acc.name {
@@ -116,7 +118,7 @@ public extension Ledger {
                     }
                 }
             } else {
-                _setAccount(acc)
+                working._setAccount(acc)
                 report.addedAccounts += 1
             }
         }
@@ -127,7 +129,7 @@ public extension Ledger {
         var byID: [TransactionID: Transaction] = [:]
         var byOrigin: [TransactionOrigin: Transaction] = [:]
 
-        for tx in transactions {
+        for tx in working.transactions {
             byID[tx.id] = tx
             if let o = tx.origin {
                 byOrigin[o] = tx
@@ -146,7 +148,7 @@ public extension Ledger {
 
             // Ensure accounts exist (after account merge)
             for p in inc.postings {
-                guard accounts[p.accountID] != nil else {
+                guard working.accounts[p.accountID] != nil else {
                     throw LedgerMergeError.incomingReferencesUnknownAccount(accountID: p.accountID, transactionID: inc.id)
                 }
             }
@@ -168,7 +170,7 @@ public extension Ledger {
                     continue
                 case .preferIncoming:
                     // Replace by ID (same ID), and keep indices consistent (including origin).
-                    try _replaceTransaction(id: inc.id, with: inc)
+                    try working._replaceTransaction(id: inc.id, with: inc)
                     Self._reindex(byID: &byID, byOrigin: &byOrigin, old: local, new: inc)
                     continue
                 case .error:
@@ -194,7 +196,7 @@ public extension Ledger {
                     // Keep local identity stable and adopt incoming financial content.
                     let updated = Self._incomingAdoptingLocalID(inc, localID: local.id, local: local)
 
-                    try _replaceTransaction(id: local.id, with: updated)
+                    try working._replaceTransaction(id: local.id, with: updated)
 
                     Self._reindex(byID: &byID, byOrigin: &byOrigin, old: local, new: updated)
                     continue
@@ -204,15 +206,16 @@ public extension Ledger {
             }
 
             // C) Brand new finalized transaction
-            _appendTransaction(inc)
+            working._appendTransaction(inc)
             byID[inc.id] = inc
             if let o = inc.origin { byOrigin[o] = inc }
             report.addedTransactions += 1
         }
 
         // Canonical ordering for deterministic persistence
-        _reorderTransactionsCanonically()
+        working._reorderTransactionsCanonically()
 
+        self = working
         return report
     }
 }
