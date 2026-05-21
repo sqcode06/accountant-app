@@ -9,6 +9,7 @@ public enum ImportError: Error, Equatable, Sendable {
     case accountArchived(AccountID)
     case invalidTransaction
     case duplicateExternalIDInBatch(TransactionOrigin)
+    case classificationFailed(ClassificationError)
 }
 
 public enum ImportLineOutcome: Equatable, Sendable {
