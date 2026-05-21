@@ -48,7 +48,7 @@ public struct Ledger: Sendable {
 
         try tx.validate()
         try ensureAccountsExistAndAreActive(for: tx)
-        
+
         transactions.append(tx)
     }
 
@@ -97,7 +97,7 @@ public struct Ledger: Sendable {
         return out
     }
 
-    /// Returns transactions sorted by (date asc, id asc) for stable output.
+    /// Returns transactions sorted by (date asc, createdAt asc, id asc) for stable output.
     public func allTransactionsSorted(includeDrafts: Bool = true) -> [Transaction] {
         let base = includeDrafts ? transactions : transactions.filter { $0.state == .finalized }
         return base.sorted {
@@ -128,14 +128,6 @@ public struct Ledger: Sendable {
     private func hasOpenDrafts(involving accountID: AccountID) -> Bool {
         transactions.contains { tx in
             tx.state == .draft && tx.postings.contains { $0.accountID == accountID }
-        }
-    }
-
-    private func ensureAccountsExist(for tx: Transaction) throws {
-        for p in tx.postings {
-            guard accounts[p.accountID] != nil else {
-                throw LedgerError.unknownAccount(p.accountID)
-            }
         }
     }
 

@@ -503,7 +503,7 @@ The most important “whole system” test is:
 MVPWorkflowTests
 ```
 
-It exercises:
+It exercises the main user-facing flow:
 
 ```text
 create accounts
@@ -512,8 +512,10 @@ classify drafts
 apply import preview
 finalize transactions
 reconcile bank balance
-verify account summaries
+verify account and category balances
 ```
+
+Account summary behavior is covered separately by `AccountSummaryTests`, where filtering, archived-account handling, deterministic ordering, and kind totals are easier to check precisely.
 
 ## Development philosophy
 

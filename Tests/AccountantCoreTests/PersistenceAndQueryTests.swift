@@ -7,29 +7,39 @@ final class PersistenceAndQueryTests: XCTestCase {
         let eur = Currency("EUR")
 
         var ledger = Ledger()
-        let cash = Account(name: "Cash")
-        let bank = Account(name: "Bank")
+        let cash = Account(id: AccountID(UUID(uuidString: "11111111-1111-1111-1111-111111111111")!), name: "Cash")
+        let bank = Account(id: AccountID(UUID(uuidString: "22222222-2222-2222-2222-222222222222")!), name: "Bank")
         ledger.addAccount(cash)
         ledger.addAccount(bank)
 
+        let transactionDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let transactionTimestamp = Date(timeIntervalSince1970: 1_700_000_001)
+
         let tx = Transaction(
-            date: Date(timeIntervalSince1970: 1_700_000_000),
+            id: TransactionID(UUID(uuidString: "33333333-3333-3333-3333-333333333333")!),
+            date: transactionDate,
             memo: "Transfer",
             postings: [
                 Posting(accountID: cash.id, money: Money(Decimal(-10), currency: eur)),
                 Posting(accountID: bank.id, money: Money(Decimal(10), currency: eur))
-            ]
+            ],
+            createdAt: transactionTimestamp,
+            updatedAt: transactionTimestamp
         )
         try ledger.addTransaction(tx)
 
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let fileURL = dir.appendingPathComponent("ledger.json")
+        defer { try? FileManager.default.removeItem(at: dir) }
 
         let store = JSONLedgerStore(fileURL: fileURL)
         try store.save(ledger)
 
         let loaded = try store.load()
         XCTAssertEqual(loaded, ledger)
+        XCTAssertEqual(loaded.accounts[cash.id], cash)
+        XCTAssertEqual(loaded.accounts[bank.id], bank)
+        XCTAssertEqual(loaded.transactions, [tx])
         XCTAssertEqual(loaded.balance(of: bank.id, currency: eur).amount, Decimal(10))
     }
 
