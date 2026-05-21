@@ -12,7 +12,7 @@ final class AccountSummaryTests: XCTestCase {
         XCTAssertEqual(summaries.map { $0.account.name }, ["Bank", "Cash", "Groceries", "Salary"])
         XCTAssertEqual(summaries.map { $0.account.kind }, [.asset, .asset, .expense, .income])
 
-        XCTAssertEqual(summary(named: "Bank", in: summaries)?.balance, Money(Decimal(860), currency: fixture.eur))
+        XCTAssertEqual(summary(named: "Bank", in: summaries)?.balance, Money(Decimal(845), currency: fixture.eur))
         XCTAssertEqual(summary(named: "Cash", in: summaries)?.balance, Money(Decimal(100), currency: fixture.eur))
         XCTAssertEqual(summary(named: "Groceries", in: summaries)?.balance, Money(Decimal(40), currency: fixture.eur))
         XCTAssertEqual(summary(named: "Salary", in: summaries)?.balance, Money(Decimal(-1000), currency: fixture.eur))
@@ -41,10 +41,10 @@ final class AccountSummaryTests: XCTestCase {
             includeDrafts: true
         )
 
-        XCTAssertEqual(summary(named: "Bank", in: finalizedOnly)?.balance, Money(Decimal(860), currency: fixture.eur))
+        XCTAssertEqual(summary(named: "Bank", in: finalizedOnly)?.balance, Money(Decimal(845), currency: fixture.eur))
         XCTAssertEqual(summary(named: "Groceries", in: finalizedOnly)?.balance, Money(Decimal(40), currency: fixture.eur))
 
-        XCTAssertEqual(summary(named: "Bank", in: withDrafts)?.balance, Money(Decimal(850), currency: fixture.eur))
+        XCTAssertEqual(summary(named: "Bank", in: withDrafts)?.balance, Money(Decimal(835), currency: fixture.eur))
         XCTAssertEqual(summary(named: "Groceries", in: withDrafts)?.balance, Money(Decimal(50), currency: fixture.eur))
     }
 
@@ -71,10 +71,10 @@ final class AccountSummaryTests: XCTestCase {
             asOf: Date(timeIntervalSince1970: 400)
         )
 
-        XCTAssertEqual(summary(named: "Bank", in: beforeLaterTransaction)?.balance, Money(Decimal(860), currency: fixture.eur))
+        XCTAssertEqual(summary(named: "Bank", in: beforeLaterTransaction)?.balance, Money(Decimal(845), currency: fixture.eur))
         XCTAssertEqual(summary(named: "Groceries", in: beforeLaterTransaction)?.balance, Money(Decimal(40), currency: fixture.eur))
 
-        XCTAssertEqual(summary(named: "Bank", in: afterLaterTransaction)?.balance, Money(Decimal(835), currency: fixture.eur))
+        XCTAssertEqual(summary(named: "Bank", in: afterLaterTransaction)?.balance, Money(Decimal(820), currency: fixture.eur))
         XCTAssertEqual(summary(named: "Groceries", in: afterLaterTransaction)?.balance, Money(Decimal(65), currency: fixture.eur))
     }
 
@@ -96,8 +96,8 @@ final class AccountSummaryTests: XCTestCase {
         XCTAssertEqual(summary(named: "Old Dining", in: includingArchived)?.account.status, .archived)
         XCTAssertEqual(summary(named: "Old Dining", in: includingArchived)?.balance, Money(Decimal(15), currency: fixture.eur))
 
-        // Archived counterparty history still affects the active bank account.
-        XCTAssertEqual(summary(named: "Bank", in: activeOnly)?.balance, Money(Decimal(860), currency: fixture.eur))
+        // Archived account rows are hidden by default, but their historical postings still affect active accounts.
+        XCTAssertEqual(summary(named: "Bank", in: activeOnly)?.balance, Money(Decimal(845), currency: fixture.eur))
     }
 
     func testAccountBalanceSummariesFilterByKind() throws {
@@ -116,7 +116,7 @@ final class AccountSummaryTests: XCTestCase {
         )
 
         XCTAssertEqual(assets.map { $0.account.name }, ["Bank", "Cash"])
-        XCTAssertEqual(summary(named: "Bank", in: assets)?.balance, Money(Decimal(860), currency: fixture.eur))
+        XCTAssertEqual(summary(named: "Bank", in: assets)?.balance, Money(Decimal(845), currency: fixture.eur))
         XCTAssertEqual(summary(named: "Cash", in: assets)?.balance, Money(Decimal(100), currency: fixture.eur))
 
         XCTAssertEqual(expenses.map { $0.account.name }, ["Groceries"])
@@ -147,7 +147,7 @@ final class AccountSummaryTests: XCTestCase {
 
         XCTAssertEqual(summaries.map { $0.kind }, [.asset, .expense, .income])
 
-        XCTAssertEqual(kindSummary(.asset, in: summaries)?.balance, Money(Decimal(960), currency: fixture.eur))
+        XCTAssertEqual(kindSummary(.asset, in: summaries)?.balance, Money(Decimal(945), currency: fixture.eur))
         XCTAssertEqual(kindSummary(.asset, in: summaries)?.accountCount, 2)
 
         XCTAssertEqual(kindSummary(.expense, in: summaries)?.balance, Money(Decimal(40), currency: fixture.eur))
