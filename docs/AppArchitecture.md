@@ -436,7 +436,7 @@ Recommended app flow:
 
 ```text
 User chooses/imports lines
-  -> parser produces BankLine[]
+  -> parser produces [BankLine]
   -> pipeline.previewImport(..., classifier: ...)
   -> ImportPreview screen displays outcomes
   -> user applies proposed drafts
