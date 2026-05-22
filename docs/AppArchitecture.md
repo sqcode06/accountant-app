@@ -204,11 +204,12 @@ final class AppState: ObservableObject {
 
     init(repository: LedgerRepository) async {
         self.repository = repository
+        self.ledger = Ledger()
+        self.lastError = nil
 
         do {
             self.ledger = try await repository.loadOrCreate()
         } catch {
-            self.ledger = Ledger()
             self.lastError = AppError(error)
         }
     }
