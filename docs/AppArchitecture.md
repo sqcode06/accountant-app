@@ -43,11 +43,14 @@ try ledger.finalizeTransaction(id: tx.id)
 Bad:
 
 ```swift
-// Do not build accounting state by bypassing the ledger.
-ledger.transactions.append(...)
+// Do not treat a detached ledger snapshot as app state and persist it directly.
+var editedLedgerSnapshot = appState.ledger
+// ...mutate or replace state outside AppState's user-intent methods...
+let data = try JSONEncoder().encode(editedLedgerSnapshot)
+try data.write(to: ledgerURL)
 ```
 
-The ledger is a gatekeeper, not a storage bag.
+The ledger is a gatekeeper, and AppState / LedgerRepository are the app's controlled doorway. Do not build parallel mutation or persistence paths around them.
 
 ### 2. SwiftUI views should display state and send intent
 
