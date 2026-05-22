@@ -4,35 +4,17 @@ import AccountantCore
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
 
-    private let displayCurrency = Currency("EUR")
-
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Accountant")
-                .font(.largeTitle.bold())
-
-            if appState.isLoading {
-                ProgressView("Loading ledger...")
-            } else {
-                Text("Local ledger connected")
-                    .foregroundStyle(.secondary)
-
-                Text(accountSummaryText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                Button("Add demo account") {
-                    Task {
-                        await appState.createAccount(
-                            name: nextDemoAccountName,
-                            kind: .asset
-                        )
-                    }
+        NavigationStack {
+            Group {
+                if appState.isLoading {
+                    ProgressView("Loading ledger...")
+                } else {
+                    AccountListView()
                 }
-                .buttonStyle(.borderedProminent)
             }
+            .navigationTitle("Accountant")
         }
-        .padding()
         .alert(item: $appState.lastError) { error in
             Alert(
                 title: Text("Accountant"),
@@ -40,19 +22,6 @@ struct ContentView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-    }
-
-    private var accountSummaryText: String {
-        let summaries = appState.ledger.accountBalanceSummaries(
-            currency: displayCurrency,
-            asOf: Date()
-        )
-
-        return "Accounts: \(summaries.count)"
-    }
-
-    private var nextDemoAccountName: String {
-        "Demo Account \(appState.ledger.accounts.count + 1)"
     }
 }
 

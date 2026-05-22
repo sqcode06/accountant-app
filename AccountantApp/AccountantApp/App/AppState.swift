@@ -45,16 +45,61 @@ final class AppState: ObservableObject {
         }
     }
 
-    func createAccount(name: String, kind: AccountKind) async {
+    @discardableResult
+    private func mutateAndSave(_ mutate: (inout Ledger) throws -> Void) async -> Bool {
         var updated = ledger
-        updated.addAccount(Account(name: name, kind: kind))
 
         do {
+            try mutate(&updated)
             try await repository.save(updated)
             ledger = updated
             lastError = nil
+            return true
         } catch {
             lastError = AppError(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func createAccount(name: String, kind: AccountKind) async -> Bool {
+        let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanedName.isEmpty else {
+            lastError = AppError(message: "Account name cannot be empty.")
+            return false
+        }
+
+        return await mutateAndSave { ledger in
+            ledger.addAccount(Account(name: cleanedName, kind: kind))
+        }
+    }
+
+    @discardableResult
+    func renameAccount(id: AccountID, to newName: String) async -> Bool {
+        let cleanedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanedName.isEmpty else {
+            lastError = AppError(message: "Account name cannot be empty.")
+            return false
+        }
+
+        return await mutateAndSave { ledger in
+            try ledger.renameAccount(id: id, to: cleanedName)
+        }
+    }
+
+    @discardableResult
+    func archiveAccount(id: AccountID) async -> Bool {
+        await mutateAndSave { ledger in
+            try ledger.archiveAccount(id: id)
+        }
+    }
+
+    @discardableResult
+    func restoreAccount(id: AccountID) async -> Bool {
+        await mutateAndSave { ledger in
+            try ledger.restoreAccount(id: id)
         }
     }
 }
