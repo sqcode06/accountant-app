@@ -180,8 +180,11 @@ private struct AccountListPreviewRepository: LedgerRepository {
 private extension Sequence where Element == Account {
     func sortedForDisplay() -> [Account] {
         sorted {
-            if $0.kind.rawValue != $1.kind.rawValue {
-                return $0.kind.rawValue < $1.kind.rawValue
+            let lhsKindIndex = AccountKindCatalog.sortIndex(for: $0.kind)
+            let rhsKindIndex = AccountKindCatalog.sortIndex(for: $1.kind)
+            
+            if lhsKindIndex != rhsKindIndex {
+                return lhsKindIndex < rhsKindIndex
             }
 
             if $0.name.localizedCaseInsensitiveCompare($1.name) != .orderedSame {

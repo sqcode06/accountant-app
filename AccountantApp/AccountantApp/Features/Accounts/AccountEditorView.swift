@@ -14,7 +14,6 @@ struct AccountEditorView: View {
 
     @State private var name: String
     @State private var kind: AccountKind
-    @State private var validationMessage: String?
 
     init(mode: Mode) {
         self.mode = mode
@@ -52,11 +51,10 @@ struct AccountEditorView: View {
                     }
                 }
 
-                if let validationMessage {
-                    Section {
-                        Text(validationMessage)
-                            .foregroundStyle(.red)
-                    }
+                if cleanedName.isEmpty {
+                    Text("Account name is required.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 if case let .edit(account) = mode {
@@ -129,12 +127,9 @@ struct AccountEditorView: View {
 
     private func save() {
         guard !cleanedName.isEmpty else {
-            validationMessage = "Account name cannot be empty."
             return
         }
-
-        validationMessage = nil
-
+        
         Task {
             let didSave: Bool
 

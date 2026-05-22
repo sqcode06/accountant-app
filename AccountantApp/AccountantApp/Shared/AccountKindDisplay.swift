@@ -9,6 +9,10 @@ enum AccountKindCatalog {
         .equity,
         .clearing
     ]
+    
+    static func sortIndex(for kind: AccountKind) -> Int {
+        all.firstIndex(of: kind) ?? Int.max
+    }
 }
 
 extension AccountKind {
