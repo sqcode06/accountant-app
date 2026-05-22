@@ -25,6 +25,8 @@ Current core capabilities:
 
 The next major work should be app integration, documentation refinement, and UX-facing workflows, not more hidden core features.
 
+App architecture notes for the future iOS layer live in [`docs/AppArchitecture.md`](docs/AppArchitecture.md).
+
 ## Mental model
 
 The original idea behind Accountant is a transaction-account matrix:
