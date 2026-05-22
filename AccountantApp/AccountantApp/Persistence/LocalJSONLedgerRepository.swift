@@ -28,14 +28,18 @@ struct LocalJSONLedgerRepository: LedgerRepository {
     }
 
     func loadOrCreate() async throws -> Ledger {
-        do {
-            return try store.load()
-        } catch LedgerStoreError.fileNotFound {
-            return Ledger()
-        }
+        try await Task.detached(priority: .utility) {
+            do {
+                return try store.load()
+            } catch LedgerStoreError.fileNotFound {
+                return Ledger()
+            }
+        }.value
     }
 
     func save(_ ledger: Ledger) async throws {
-        try store.save(ledger)
+        try await Task.detached(priority: .utility) {
+            try store.save(ledger)
+        }.value
     }
 }

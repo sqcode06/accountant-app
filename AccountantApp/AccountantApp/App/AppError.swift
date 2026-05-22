@@ -1,7 +1,7 @@
 import Foundation
 import AccountantCore
 
-struct AppError: Identifiable, Equatable {
+struct AppError: Identifiable {
     let id = UUID()
     let message: String
 
