@@ -201,7 +201,13 @@ final class AppState: ObservableObject {
 
     init(repository: LedgerRepository) async {
         self.repository = repository
-        self.ledger = await repository.loadOrCreate()
+
+        do {
+            self.ledger = try await repository.loadOrCreate()
+        } catch {
+            self.ledger = Ledger()
+            self.lastError = AppError(error)
+        }
     }
 
     func save() async {
@@ -244,7 +250,7 @@ Define an app-level repository protocol instead of letting the app call `JSONLed
 
 ```swift
 protocol LedgerRepository: Sendable {
-    func load() async throws -> Ledger
+    func loadOrCreate() async throws -> Ledger
     func save(_ ledger: Ledger) async throws
 }
 ```
@@ -255,8 +261,12 @@ Then a local implementation can wrap the current core store:
 struct LocalJSONLedgerRepository: LedgerRepository {
     let store: JSONLedgerStore
 
-    func load() async throws -> Ledger {
-        try store.load()
+    func loadOrCreate() async throws -> Ledger {
+        do {
+            return try store.load()
+        } catch LedgerStoreError.fileNotFound {
+            return Ledger()
+        }
     }
 
     func save(_ ledger: Ledger) async throws {
@@ -274,7 +284,7 @@ The app-level repository should decide what happens when no ledger file exists.
 Recommended behavior:
 
 ```text
-load()
+loadOrCreate()
   if file exists:
       return saved ledger
   if file does not exist:
