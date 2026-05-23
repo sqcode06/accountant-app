@@ -27,6 +27,8 @@ The next major work should be app integration, documentation refinement, and UX-
 
 App architecture notes for the future iOS layer live in [`docs/AppArchitecture.md`](docs/AppArchitecture.md).
 
+App testing notes for the iOS layer live in [`docs/AppTesting.md`](docs/AppTesting.md).
+
 ## Mental model
 
 The original idea behind Accountant is a transaction-account matrix:

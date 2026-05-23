@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		B00993E72FC09C98001262DB /* AccountantCore in Frameworks */ = {isa = PBXBuildFile; productRef = B00993E62FC09C98001262DB /* AccountantCore */; };
+		B00993E92FC09C98001262DB /* AccountantCore in Frameworks */ = {isa = PBXBuildFile; productRef = B00993E82FC09C98001262DB /* AccountantCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,6 +65,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B00993E92FC09C98001262DB /* AccountantCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -141,6 +143,7 @@
 			);
 			name = AccountantAppTests;
 			packageProductDependencies = (
+				B00993E82FC09C98001262DB /* AccountantCore */,
 			);
 			productName = AccountantAppTests;
 			productReference = B00993C82FC09A62001262DB /* AccountantAppTests.xctest */;
@@ -575,6 +578,10 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		B00993E62FC09C98001262DB /* AccountantCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AccountantCore;
+		};
+		B00993E82FC09C98001262DB /* AccountantCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AccountantCore;
 		};
