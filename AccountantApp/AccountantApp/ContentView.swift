@@ -5,15 +5,20 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if appState.isLoading {
-                    ProgressView("Loading ledger...")
-                } else {
-                    AccountListView()
-                }
+        TabView {
+            loadedTab(title: "Summary") {
+                DashboardView()
             }
-            .navigationTitle("Accountant")
+            .tabItem {
+                Label("Summary", systemImage: "chart.pie.fill")
+            }
+
+            loadedTab(title: "Accounts") {
+                AccountListView()
+            }
+            .tabItem {
+                Label("Accounts", systemImage: "tray.full.fill")
+            }
         }
         .alert(item: $appState.lastError) { error in
             Alert(
@@ -21,6 +26,23 @@ struct ContentView: View {
                 message: Text(error.message),
                 dismissButton: .default(Text("OK"))
             )
+        }
+    }
+
+    @ViewBuilder
+    private func loadedTab<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        NavigationStack {
+            Group {
+                if appState.isLoading {
+                    ProgressView("Loading ledger...")
+                } else {
+                    content()
+                }
+            }
+            .navigationTitle(title)
         }
     }
 }
