@@ -13,6 +13,13 @@ struct ContentView: View {
                 Label("Summary", systemImage: "chart.pie.fill")
             }
 
+            loadedTab(title: "Transactions") {
+                TransactionListView()
+            }
+            .tabItem {
+                Label("Transactions", systemImage: "list.bullet.rectangle.portrait.fill")
+            }
+
             loadedTab(title: "Accounts") {
                 AccountListView()
             }

@@ -61,3 +61,23 @@ extension AccountStatus {
         }
     }
 }
+
+extension Sequence where Element == Account {
+    func sortedForDisplay() -> [Account] {
+        sorted {
+            let lhsKindIndex = AccountKindCatalog.sortIndex(for: $0.kind)
+            let rhsKindIndex = AccountKindCatalog.sortIndex(for: $1.kind)
+
+            if lhsKindIndex != rhsKindIndex {
+                return lhsKindIndex < rhsKindIndex
+            }
+
+            let nameComparison = $0.name.localizedCaseInsensitiveCompare($1.name)
+            if nameComparison != .orderedSame {
+                return nameComparison == .orderedAscending
+            }
+
+            return $0.id.rawValue.uuidString < $1.id.rawValue.uuidString
+        }
+    }
+}

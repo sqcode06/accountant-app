@@ -176,22 +176,3 @@ private struct AccountListPreviewRepository: LedgerRepository {
 
     func save(_ ledger: Ledger) async throws {}
 }
-
-private extension Sequence where Element == Account {
-    func sortedForDisplay() -> [Account] {
-        sorted {
-            let lhsKindIndex = AccountKindCatalog.sortIndex(for: $0.kind)
-            let rhsKindIndex = AccountKindCatalog.sortIndex(for: $1.kind)
-            
-            if lhsKindIndex != rhsKindIndex {
-                return lhsKindIndex < rhsKindIndex
-            }
-
-            if $0.name.localizedCaseInsensitiveCompare($1.name) != .orderedSame {
-                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
-
-            return $0.id.rawValue.uuidString < $1.id.rawValue.uuidString
-        }
-    }
-}
