@@ -33,6 +33,8 @@ struct AppError: Identifiable {
             self.message = "This transaction has no postings."
         case LedgerError.duplicateTransactionID:
             self.message = "A transaction with this ID already exists."
+        case TransactionCreationError.nonPositiveAmount(_):
+            self.message = "Amount must be greater than zero."
         default:
             self.message = "Something went wrong: \(error.localizedDescription)"
         }
