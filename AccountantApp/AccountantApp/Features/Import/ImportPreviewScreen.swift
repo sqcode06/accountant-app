@@ -5,7 +5,7 @@ struct ImportPreviewScreen: View {
     @EnvironmentObject private var appState: AppState
 
     @State private var source = "CSV Import"
-    @State private var csvText = sampleCSV
+    @State private var csvText = Self.sampleCSV
     @State private var selectedStatementAccountID: AccountID?
     @State private var selectedCounterpartyAccountID: AccountID?
     @State private var preview: ImportPreview?
@@ -13,6 +13,7 @@ struct ImportPreviewScreen: View {
     @State private var parseErrorMessage: String?
     @State private var applyReport: ImportApplyReport?
     @State private var isApplying = false
+    @State private var isBuildingPreview = false
 
     var body: some View {
         ScrollView {
@@ -82,13 +83,20 @@ struct ImportPreviewScreen: View {
                             }
 
                         Button {
-                            buildPreview()
+                            Task {
+                                await buildPreview()
+                            }
                         } label: {
-                            Label("Preview Import", systemImage: "doc.text.magnifyingglass")
-                                .frame(maxWidth: .infinity)
+                            if isBuildingPreview {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                            } else {
+                                Label("Preview Import", systemImage: "doc.text.magnifyingglass")
+                                    .frame(maxWidth: .infinity)
+                            }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(!canPreview)
+                        .disabled(!canPreview || isBuildingPreview)
                     }
                 }
 
@@ -161,7 +169,8 @@ struct ImportPreviewScreen: View {
         }
     }
 
-    private func buildPreview() {
+    @MainActor
+    private func buildPreview() async {
         ensureDefaultSelections()
 
         guard let statementAccountID = selectedStatementAccountID,
@@ -173,21 +182,37 @@ struct ImportPreviewScreen: View {
         }
 
         let cleanedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let csvText = csvText
+        let ledger = appState.ledger
+        let dateFormats = ["yyyy-MM-dd", "dd.MM.yyyy"]
+
+        isBuildingPreview = true
+        defer { isBuildingPreview = false }
 
         do {
-            let parser = CSVBankLineParser(
-                source: cleanedSource,
-                dateFormats: ["yyyy-MM-dd", "dd.MM.yyyy"]
-            )
-            let lines = try parser.parse(csvText)
-            let pipeline = ImportPipeline(
+            let builtPreview = try await Task.detached(priority: .userInitiated) {
+                let parser = CSVBankLineParser(
+                    source: cleanedSource,
+                    dateFormats: dateFormats
+                )
+
+                let lines = try parser.parse(csvText)
+
+                let pipeline = ImportPipeline(
+                    source: cleanedSource,
+                    statementAccountID: statementAccountID,
+                    defaultCounterpartyAccountID: counterpartyAccountID
+                )
+
+                return pipeline.previewImport(lines: lines, into: ledger)
+            }.value
+
+            preview = builtPreview
+            previewPipeline = ImportPipeline(
                 source: cleanedSource,
                 statementAccountID: statementAccountID,
                 defaultCounterpartyAccountID: counterpartyAccountID
             )
-
-            preview = pipeline.previewImport(lines: lines, into: appState.ledger)
-            previewPipeline = pipeline
             parseErrorMessage = nil
             applyReport = nil
         } catch {
@@ -308,8 +333,8 @@ private struct ImportPreviewResultsView: View {
             }
 
             ImportOutcomeSection(
-                title: "Proposed drafts",
-                subtitle: "These will be inserted as draft transactions.",
+                title: "Ready drafts",
+                subtitle: "Clean proposed drafts with no warnings.",
                 outcomes: preview.proposedOutcomes,
                 accounts: accounts
             )
@@ -342,12 +367,12 @@ private struct ImportPreviewResultsView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                 } else {
-                    Label("Apply Proposed Drafts", systemImage: "square.and.arrow.down")
+                    Label("Apply Importable Drafts", systemImage: "square.and.arrow.down")
                         .frame(maxWidth: .infinity)
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(preview.proposedCount == 0 || isApplying || applyReport != nil)
+            .disabled(preview.importableCount == 0 || isApplying || applyReport != nil)
         }
     }
 }
@@ -357,7 +382,7 @@ private struct ImportSummaryStrip: View {
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            ImportMetricPill(title: "Proposed", value: preview.proposedCount, systemImage: "doc.badge.plus", tint: .blue)
+            ImportMetricPill(title: "Ready", value: preview.proposedCount, systemImage: "doc.badge.plus", tint: .blue)
             ImportMetricPill(title: "Warnings", value: preview.warningCount, systemImage: "exclamationmark.triangle", tint: .orange)
             ImportMetricPill(title: "Duplicates", value: preview.skippedCount, systemImage: "doc.on.doc", tint: .secondary)
             ImportMetricPill(title: "Failed", value: preview.failedCount, systemImage: "xmark.octagon", tint: .red)
@@ -619,9 +644,22 @@ private extension ImportPreview {
         outcomes.enumerated().map { (offset: $0.offset, outcome: $0.element) }
     }
 
+    var importableOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
+        indexedOutcomes.filter { item in
+            if case .proposed = item.outcome {
+                return true
+            }
+
+            return false
+        }
+    }
+
     var proposedOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
         indexedOutcomes.filter { item in
-            if case .proposed = item.outcome { return true }
+            if case .proposed(_, _, let warnings) = item.outcome {
+                return warnings.isEmpty
+            }
+
             return false
         }
     }
@@ -631,37 +669,36 @@ private extension ImportPreview {
             if case .proposed(_, _, let warnings) = item.outcome {
                 return !warnings.isEmpty
             }
+
             return false
         }
     }
 
     var skippedOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
         indexedOutcomes.filter { item in
-            if case .skippedDuplicate = item.outcome { return true }
+            if case .skippedDuplicate = item.outcome {
+                return true
+            }
+
             return false
         }
     }
 
     var failedOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
         indexedOutcomes.filter { item in
-            if case .failed = item.outcome { return true }
+            if case .failed = item.outcome {
+                return true
+            }
+
             return false
         }
     }
 
+    var importableCount: Int { importableOutcomes.count }
     var proposedCount: Int { proposedOutcomes.count }
     var skippedCount: Int { skippedOutcomes.count }
     var failedCount: Int { failedOutcomes.count }
-
-    var warningCount: Int {
-        outcomes.reduce(0) { partialResult, outcome in
-            if case .proposed(_, _, let warnings) = outcome {
-                return partialResult + warnings.count
-            }
-
-            return partialResult
-        }
-    }
+    var warningCount: Int { warningOutcomes.count }
 }
 
 private enum ImportPreviewFormatting {
