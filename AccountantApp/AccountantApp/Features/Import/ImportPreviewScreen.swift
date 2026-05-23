@@ -184,7 +184,7 @@ struct ImportPreviewScreen: View {
 
         return ImportPreviewConfiguration(
             source: cleanedSource,
-            csvText: csvText,
+            csvText: cleanedCSV,
             statementAccountID: statementAccountID,
             counterpartyAccountID: counterpartyAccountID
         )

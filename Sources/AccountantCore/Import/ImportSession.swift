@@ -149,6 +149,12 @@ public extension ImportPipeline {
             switch outcome {
 
             case .proposed(_, let draft, _):
+                if let origin = draft.origin,
+                   existingTransactionID(for: origin, in: working) != nil {
+                    skippedOutcomes += 1
+                    continue
+                }
+
                 try working.addTransaction(draft)
                 insertedTransactions += 1
 

@@ -187,4 +187,41 @@ final class ImportPipelineTests: XCTestCase {
 
         XCTAssertEqual(draft.updatedAt, now)
     }
+    
+    func testApplyImportPreviewSkipsProposedDraftIfOriginNowExistsInLedger() throws {
+        let eur = Currency("EUR")
+
+        var previewLedger = Ledger()
+        let bank = Account(name: "Bank", kind: .asset)
+        let expense = Account(name: "Expense", kind: .expense)
+        previewLedger.addAccount(bank)
+        previewLedger.addAccount(expense)
+
+        let pipeline = ImportPipeline(
+            source: "Bank",
+            statementAccountID: bank.id,
+            defaultCounterpartyAccountID: expense.id
+        )
+
+        let line = BankLine(
+            date: Date(timeIntervalSince1970: 100),
+            amount: Decimal(-10),
+            currency: eur,
+            description: "Coffee",
+            externalID: "CARD-1"
+        )
+
+        let preview = pipeline.previewImport(lines: [line], into: previewLedger)
+        XCTAssertEqual(preview.outcomes.count, 1)
+
+        var currentLedger = previewLedger
+        let alreadyImported = try pipeline.makeDraft(from: line)
+        try currentLedger.addTransaction(alreadyImported)
+
+        let report = try pipeline.applyImportPreview(preview, to: &currentLedger)
+
+        XCTAssertEqual(report.insertedTransactions, 0)
+        XCTAssertEqual(report.skippedOutcomes, 1)
+        XCTAssertEqual(currentLedger.transactions.count, 1)
+    }
 }
