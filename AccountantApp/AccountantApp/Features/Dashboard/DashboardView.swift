@@ -4,60 +4,63 @@ import AccountantCore
 struct DashboardView: View {
     @EnvironmentObject private var appState: AppState
 
+    // Temporary until app settings / preferred display currency exist.
     private let displayCurrency = Currency("EUR")
 
     var body: some View {
+        let snapshot = dashboardSnapshot
+
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 DashboardHeroCard(
                     title: "Net position",
-                    amount: Money(assetLiabilityAmount, currency: displayCurrency),
-                    subtitle: heroSubtitle
+                    amount: Money(snapshot.assetLiabilityAmount, currency: snapshot.currency),
+                    subtitle: snapshot.heroSubtitle
                 )
 
                 LazyVGrid(columns: metricColumns, spacing: 12) {
                     DashboardMetricCard(
                         title: "Assets",
-                        amount: Money(kindAmount(.asset), currency: displayCurrency),
+                        amount: Money(snapshot.kindAmount(.asset), currency: snapshot.currency),
                         systemImage: AccountKind.asset.systemImageName,
-                        caption: accountCountCaption(for: .asset)
+                        caption: snapshot.accountCountCaption(for: .asset)
                     )
 
                     DashboardMetricCard(
                         title: "Liabilities",
-                        amount: Money(kindAmount(.liability), currency: displayCurrency),
+                        amount: Money(snapshot.kindAmount(.liability), currency: snapshot.currency),
                         systemImage: AccountKind.liability.systemImageName,
-                        caption: accountCountCaption(for: .liability)
+                        caption: snapshot.accountCountCaption(for: .liability)
                     )
 
                     DashboardMetricCard(
                         title: "Income",
-                        amount: Money(userFacingAmount(for: .income), currency: displayCurrency),
+                        amount: Money(snapshot.userFacingAmount(for: .income), currency: snapshot.currency),
                         systemImage: AccountKind.income.systemImageName,
-                        caption: accountCountCaption(for: .income)
+                        caption: snapshot.accountCountCaption(for: .income)
                     )
 
                     DashboardMetricCard(
                         title: "Expenses",
-                        amount: Money(kindAmount(.expense), currency: displayCurrency),
+                        amount: Money(snapshot.kindAmount(.expense), currency: snapshot.currency),
                         systemImage: AccountKind.expense.systemImageName,
-                        caption: accountCountCaption(for: .expense)
+                        caption: snapshot.accountCountCaption(for: .expense)
                     )
                 }
 
                 DashboardSectionHeader(
                     title: "Accounts",
-                    subtitle: "Active balances in \(displayCurrency.code)"
+                    subtitle: "Active balances in \(snapshot.currency.code)"
                 )
 
-                if accountSummaries.isEmpty {
+                if snapshot.accountSummaries.isEmpty {
                     DashboardEmptyCard(
                         title: "No active accounts yet",
                         message: "Create accounts from the Accounts tab and they will appear here."
                     )
                 } else {
                     VStack(spacing: 10) {
-                        ForEach(accountSummaries, id: \.account.id) { summary in
+                        ForEach(snapshot.accountSummaries, id: \.account.id) { summary in
                             DashboardAccountRow(summary: summary)
                         }
                     }
@@ -68,19 +71,19 @@ struct DashboardView: View {
                     subtitle: "Raw ledger groups, with income shown as positive for readability"
                 )
 
-                if kindSummaries.isEmpty {
+                if snapshot.kindSummaries.isEmpty {
                     DashboardEmptyCard(
                         title: "No kind totals yet",
                         message: "Totals will appear once accounts exist."
                     )
                 } else {
                     VStack(spacing: 10) {
-                        ForEach(kindSummaries, id: \.kind) { summary in
+                        ForEach(snapshot.kindSummaries, id: \.kind) { summary in
                             DashboardKindRow(
                                 summary: summary,
                                 amount: Money(
-                                    userFacingAmount(for: summary.kind),
-                                    currency: displayCurrency
+                                    snapshot.userFacingAmount(for: summary.kind),
+                                    currency: snapshot.currency
                                 )
                             )
                         }
@@ -110,40 +113,69 @@ struct DashboardView: View {
         ]
     }
 
-    private var accountSummaries: [AccountBalanceSummary] {
-        appState.ledger.accountBalanceSummaries(
+    private var dashboardSnapshot: DashboardSnapshot {
+        let asOf = Date()
+
+        let accountSummaries = appState.ledger.accountBalanceSummaries(
             currency: displayCurrency,
-            asOf: Date(),
+            asOf: asOf,
             includeDrafts: false,
             includeArchived: false
+        )
+
+        return DashboardSnapshot(
+            currency: displayCurrency,
+            accountSummaries: accountSummaries,
+            kindSummaries: makeKindSummaries(from: accountSummaries),
+            archivedAccountCount: appState.ledger.accounts.values.filter { $0.status == .archived }.count
         )
     }
 
-    private var kindSummaries: [AccountKindBalanceSummary] {
-        appState.ledger.accountKindBalanceSummaries(
-            currency: displayCurrency,
-            asOf: Date(),
-            includeDrafts: false,
-            includeArchived: false
-        )
-        .sorted {
-            AccountKindCatalog.sortIndex(for: $0.kind) < AccountKindCatalog.sortIndex(for: $1.kind)
+    private func makeKindSummaries(
+        from accountSummaries: [AccountBalanceSummary]
+    ) -> [AccountKindBalanceSummary] {
+        var grouped: [AccountKind: (amount: Decimal, count: Int)] = [:]
+
+        for summary in accountSummaries {
+            let current = grouped[summary.account.kind] ?? (amount: .zero, count: 0)
+            grouped[summary.account.kind] = (
+                amount: current.amount + summary.balance.amount,
+                count: current.count + 1
+            )
         }
+
+        return grouped.keys
+            .sorted {
+                AccountKindCatalog.sortIndex(for: $0) < AccountKindCatalog.sortIndex(for: $1)
+            }
+            .map { kind in
+                let value = grouped[kind] ?? (amount: .zero, count: 0)
+
+                return AccountKindBalanceSummary(
+                    kind: kind,
+                    currency: displayCurrency,
+                    balance: Money(value.amount, currency: displayCurrency),
+                    accountCount: value.count
+                )
+            }
+    }
+}
+
+private struct DashboardSnapshot {
+    let currency: Currency
+    let accountSummaries: [AccountBalanceSummary]
+    let kindSummaries: [AccountKindBalanceSummary]
+    let archivedAccountCount: Int
+
+    var activeAccountCount: Int {
+        accountSummaries.count
     }
 
-    private var activeAccountCount: Int {
-        appState.ledger.accounts.values.filter { $0.status == .active }.count
-    }
-
-    private var archivedAccountCount: Int {
-        appState.ledger.accounts.values.filter { $0.status == .archived }.count
-    }
-
-    private var assetLiabilityAmount: Decimal {
+    var assetLiabilityAmount: Decimal {
         kindAmount(.asset) + kindAmount(.liability)
     }
 
-    private var heroSubtitle: String {
+    var heroSubtitle: String {
         let activeText = "\(activeAccountCount) active account\(activeAccountCount == 1 ? "" : "s")"
 
         if archivedAccountCount == 0 {
@@ -153,11 +185,11 @@ struct DashboardView: View {
         return "\(activeText) · \(archivedAccountCount) archived"
     }
 
-    private func kindAmount(_ kind: AccountKind) -> Decimal {
+    func kindAmount(_ kind: AccountKind) -> Decimal {
         kindSummaries.first { $0.kind == kind }?.balance.amount ?? .zero
     }
 
-    private func userFacingAmount(for kind: AccountKind) -> Decimal {
+    func userFacingAmount(for kind: AccountKind) -> Decimal {
         let rawAmount = kindAmount(kind)
 
         switch kind {
@@ -168,7 +200,7 @@ struct DashboardView: View {
         }
     }
 
-    private func accountCountCaption(for kind: AccountKind) -> String {
+    func accountCountCaption(for kind: AccountKind) -> String {
         let count = kindSummaries.first { $0.kind == kind }?.accountCount ?? 0
         return "\(count) account\(count == 1 ? "" : "s")"
     }

@@ -6,29 +6,15 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
-            NavigationStack {
-                Group {
-                    if appState.isLoading {
-                        ProgressView("Loading ledger...")
-                    } else {
-                        DashboardView()
-                    }
-                }
-                .navigationTitle("Summary")
+            loadedTab(title: "Summary") {
+                DashboardView()
             }
             .tabItem {
                 Label("Summary", systemImage: "chart.pie.fill")
             }
 
-            NavigationStack {
-                Group {
-                    if appState.isLoading {
-                        ProgressView("Loading ledger...")
-                    } else {
-                        AccountListView()
-                    }
-                }
-                .navigationTitle("Accounts")
+            loadedTab(title: "Accounts") {
+                AccountListView()
             }
             .tabItem {
                 Label("Accounts", systemImage: "tray.full.fill")
@@ -40,6 +26,23 @@ struct ContentView: View {
                 message: Text(error.message),
                 dismissButton: .default(Text("OK"))
             )
+        }
+    }
+
+    @ViewBuilder
+    private func loadedTab<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        NavigationStack {
+            Group {
+                if appState.isLoading {
+                    ProgressView("Loading ledger...")
+                } else {
+                    content()
+                }
+            }
+            .navigationTitle(title)
         }
     }
 }
