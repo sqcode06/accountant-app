@@ -20,6 +20,13 @@ struct ContentView: View {
                 Label("Transactions", systemImage: "list.bullet.rectangle.portrait.fill")
             }
 
+            loadedTab(title: "Import") {
+                ImportPreviewScreen()
+            }
+            .tabItem {
+                Label("Import", systemImage: "tray.and.arrow.down.fill")
+            }
+
             loadedTab(title: "Accounts") {
                 AccountListView()
             }

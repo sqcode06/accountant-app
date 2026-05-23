@@ -35,6 +35,34 @@ struct AppError: Identifiable {
             self.message = "A transaction with this ID already exists."
         case TransactionCreationError.nonPositiveAmount(_):
             self.message = "Amount must be greater than zero."
+        case ImportError.unknownAccount:
+            self.message = "An imported transaction references an unknown account."
+        case ImportError.accountArchived:
+            self.message = "An imported transaction references an archived account."
+        case ImportError.invalidTransaction:
+            self.message = "One of the imported transactions is invalid."
+        case ImportError.duplicateExternalIDInBatch:
+            self.message = "The import contains duplicate external IDs."
+        case ImportError.classificationFailed:
+            self.message = "Import classification failed."
+        case BankLineParseError.emptyInput:
+            self.message = "The CSV input is empty."
+        case BankLineParseError.missingHeader:
+            self.message = "The CSV file has no header row."
+        case let BankLineParseError.missingRequiredColumn(column):
+            self.message = "The CSV file is missing the required column \(column)."
+        case BankLineParseError.rowColumnCountMismatch:
+            self.message = "One CSV row has a different number of columns than the header."
+        case BankLineParseError.missingRequiredValue:
+            self.message = "A required CSV value is missing."
+        case BankLineParseError.invalidDate:
+            self.message = "A CSV row contains an invalid date."
+        case BankLineParseError.invalidAmount:
+            self.message = "A CSV row contains an invalid amount."
+        case BankLineParseError.invalidCurrency:
+            self.message = "A CSV row contains an invalid currency."
+        case BankLineParseError.malformedCSV:
+            self.message = "The CSV file is malformed."
         default:
             self.message = "Something went wrong: \(error.localizedDescription)"
         }

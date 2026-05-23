@@ -218,6 +218,22 @@ final class AppState: ObservableObject {
         }
     }
 
+    @discardableResult
+    func applyImportPreview(_ preview: ImportPreview, using pipeline: ImportPipeline) async -> ImportApplyReport? {
+        var updated = ledger
+
+        do {
+            let report = try pipeline.applyImportPreview(preview, to: &updated)
+            try await repository.save(updated)
+            ledger = updated
+            lastError = nil
+            return report
+        } catch {
+            lastError = AppError(error)
+            return nil
+        }
+    }
+
     private func createExpense(
         paidFrom: AccountID,
         category: AccountID,

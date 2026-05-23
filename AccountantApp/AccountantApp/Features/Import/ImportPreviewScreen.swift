@@ -1,0 +1,766 @@
+import SwiftUI
+import AccountantCore
+
+struct ImportPreviewScreen: View {
+    @EnvironmentObject private var appState: AppState
+
+    @State private var source = "CSV Import"
+    @State private var csvText = sampleCSV
+    @State private var selectedStatementAccountID: AccountID?
+    @State private var selectedCounterpartyAccountID: AccountID?
+    @State private var preview: ImportPreview?
+    @State private var previewPipeline: ImportPipeline?
+    @State private var parseErrorMessage: String?
+    @State private var applyReport: ImportApplyReport?
+    @State private var isApplying = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                ImportHeroCard()
+
+                if statementAccounts.isEmpty || counterpartyAccounts.isEmpty {
+                    ImportMissingAccountsCard(
+                        needsStatementAccount: statementAccounts.isEmpty,
+                        needsCounterpartyAccount: counterpartyAccounts.isEmpty
+                    )
+                }
+
+                ImportPanel {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Statement source")
+                            .font(.headline)
+
+                        TextField("Source name", text: $source)
+                            .textInputAutocapitalization(.words)
+                            .textFieldStyle(.roundedBorder)
+
+                        Picker("Statement account", selection: $selectedStatementAccountID) {
+                            Text("Select account").tag(AccountID?.none)
+                            ForEach(statementAccounts, id: \.id) { account in
+                                Text(accountPickerTitle(account)).tag(Optional(account.id))
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Picker("Fallback counterparty", selection: $selectedCounterpartyAccountID) {
+                            Text("Select account").tag(AccountID?.none)
+                            ForEach(counterpartyAccounts, id: \.id) { account in
+                                Text(accountPickerTitle(account)).tag(Optional(account.id))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+
+                ImportPanel {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("CSV input")
+                                .font(.headline)
+
+                            Spacer()
+
+                            Button("Use sample CSV") {
+                                csvText = Self.sampleCSV
+                                resetPreview()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        Text("Expected columns: date, amount, currency, description, external_id. Custom bank-specific mapping can come later.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        TextEditor(text: $csvText)
+                            .font(.system(.callout, design: .monospaced))
+                            .frame(minHeight: 170)
+                            .padding(8)
+                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .onChange(of: csvText) { _, _ in
+                                resetPreview()
+                            }
+
+                        Button {
+                            buildPreview()
+                        } label: {
+                            Label("Preview Import", systemImage: "doc.text.magnifyingglass")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canPreview)
+                    }
+                }
+
+                if let parseErrorMessage {
+                    ImportStatusCard(
+                        title: "Could not build preview",
+                        message: parseErrorMessage,
+                        systemImage: "exclamationmark.triangle.fill",
+                        tint: .orange
+                    )
+                }
+
+                if let preview {
+                    ImportPreviewResultsView(
+                        preview: preview,
+                        accounts: appState.ledger.accounts,
+                        applyReport: applyReport,
+                        isApplying: isApplying,
+                        onApply: {
+                            Task { await applyPreview() }
+                        }
+                    )
+                }
+            }
+            .padding()
+        }
+        .background {
+            LinearGradient(
+                colors: [
+                    Color.cyan.opacity(0.12),
+                    Color.indigo.opacity(0.08),
+                    Color(.systemBackground)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+        }
+        .onAppear(perform: ensureDefaultSelections)
+    }
+
+    private var activeAccounts: [Account] {
+        appState.ledger.accounts.values
+            .filter { $0.status == .active }
+            .sortedForDisplay()
+    }
+
+    private var statementAccounts: [Account] {
+        activeAccounts.filter { [.asset, .liability, .clearing].contains($0.kind) }
+    }
+
+    private var counterpartyAccounts: [Account] {
+        activeAccounts.filter { [.income, .expense, .clearing].contains($0.kind) }
+    }
+
+    private var canPreview: Bool {
+        selectedStatementAccountID != nil
+        && selectedCounterpartyAccountID != nil
+        && !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && !csvText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func ensureDefaultSelections() {
+        if selectedStatementAccountID == nil {
+            selectedStatementAccountID = statementAccounts.first?.id
+        }
+
+        if selectedCounterpartyAccountID == nil {
+            selectedCounterpartyAccountID = counterpartyAccounts.first?.id
+        }
+    }
+
+    private func buildPreview() {
+        ensureDefaultSelections()
+
+        guard let statementAccountID = selectedStatementAccountID,
+              let counterpartyAccountID = selectedCounterpartyAccountID else {
+            parseErrorMessage = "Create at least one statement account and one fallback counterparty account before importing."
+            preview = nil
+            previewPipeline = nil
+            return
+        }
+
+        let cleanedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        do {
+            let parser = CSVBankLineParser(
+                source: cleanedSource,
+                dateFormats: ["yyyy-MM-dd", "dd.MM.yyyy"]
+            )
+            let lines = try parser.parse(csvText)
+            let pipeline = ImportPipeline(
+                source: cleanedSource,
+                statementAccountID: statementAccountID,
+                defaultCounterpartyAccountID: counterpartyAccountID
+            )
+
+            preview = pipeline.previewImport(lines: lines, into: appState.ledger)
+            previewPipeline = pipeline
+            parseErrorMessage = nil
+            applyReport = nil
+        } catch {
+            parseErrorMessage = ImportPreviewFormatting.parseErrorMessage(error)
+            preview = nil
+            previewPipeline = nil
+            applyReport = nil
+        }
+    }
+
+    @MainActor
+    private func applyPreview() async {
+        guard let preview, let previewPipeline else { return }
+
+        isApplying = true
+        defer { isApplying = false }
+
+        if let report = await appState.applyImportPreview(preview, using: previewPipeline) {
+            applyReport = report
+        }
+    }
+
+    private func resetPreview() {
+        preview = nil
+        previewPipeline = nil
+        parseErrorMessage = nil
+        applyReport = nil
+    }
+
+    private func accountPickerTitle(_ account: Account) -> String {
+        "\(account.name) · \(account.kind.displayName)"
+    }
+
+    private static let sampleCSV = """
+    date,amount,currency,description,external_id
+    2026-05-01,-12.34,EUR,"Coffee, croissant",CARD-1
+    2026-05-02,1000.00,EUR,Salary,SALARY-1
+    2026-05-03,-8.90,EUR,Parking,
+    """
+}
+
+private struct ImportHeroCard: View {
+    var body: some View {
+        ImportPanel {
+            HStack(spacing: 16) {
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .font(.largeTitle)
+                    .foregroundStyle(.white)
+                    .padding(18)
+                    .background(
+                        LinearGradient(
+                            colors: [.cyan, .indigo],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Import preview")
+                        .font(.title2.bold())
+
+                    Text("Paste statement CSV, review proposed drafts, inspect warnings and failures, then apply only the safe draft set.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct ImportMissingAccountsCard: View {
+    let needsStatementAccount: Bool
+    let needsCounterpartyAccount: Bool
+
+    var body: some View {
+        ImportStatusCard(
+            title: "Import needs accounts first",
+            message: missingMessage,
+            systemImage: "person.crop.circle.badge.exclamationmark",
+            tint: .orange
+        )
+    }
+
+    private var missingMessage: String {
+        var parts: [String] = []
+
+        if needsStatementAccount {
+            parts.append("a statement account such as Bank, Card, or Clearing")
+        }
+
+        if needsCounterpartyAccount {
+            parts.append("a fallback counterparty such as Uncategorized, Groceries, or Salary")
+        }
+
+        return "Create \(parts.joined(separator: " and ")) in Accounts before previewing imports."
+    }
+}
+
+private struct ImportPreviewResultsView: View {
+    let preview: ImportPreview
+    let accounts: [AccountID: Account]
+    let applyReport: ImportApplyReport?
+    let isApplying: Bool
+    let onApply: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ImportSummaryStrip(preview: preview)
+
+            if let applyReport {
+                ImportStatusCard(
+                    title: "Import applied",
+                    message: "Inserted \(applyReport.insertedTransactions) draft transaction\(applyReport.insertedTransactions == 1 ? "" : "s") and skipped \(applyReport.skippedOutcomes) outcome\(applyReport.skippedOutcomes == 1 ? "" : "s").",
+                    systemImage: "checkmark.seal.fill",
+                    tint: .green
+                )
+            }
+
+            ImportOutcomeSection(
+                title: "Proposed drafts",
+                subtitle: "These will be inserted as draft transactions.",
+                outcomes: preview.proposedOutcomes,
+                accounts: accounts
+            )
+
+            ImportOutcomeSection(
+                title: "Warnings",
+                subtitle: "These rows can import, but deserve attention.",
+                outcomes: preview.warningOutcomes,
+                accounts: accounts
+            )
+
+            ImportOutcomeSection(
+                title: "Skipped duplicates",
+                subtitle: "These already appear to exist in the ledger.",
+                outcomes: preview.skippedOutcomes,
+                accounts: accounts
+            )
+
+            ImportOutcomeSection(
+                title: "Failed rows",
+                subtitle: "These rows will not be imported.",
+                outcomes: preview.failedOutcomes,
+                accounts: accounts
+            )
+
+            Button {
+                onApply()
+            } label: {
+                if isApplying {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("Apply Proposed Drafts", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(preview.proposedCount == 0 || isApplying || applyReport != nil)
+        }
+    }
+}
+
+private struct ImportSummaryStrip: View {
+    let preview: ImportPreview
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            ImportMetricPill(title: "Proposed", value: preview.proposedCount, systemImage: "doc.badge.plus", tint: .blue)
+            ImportMetricPill(title: "Warnings", value: preview.warningCount, systemImage: "exclamationmark.triangle", tint: .orange)
+            ImportMetricPill(title: "Duplicates", value: preview.skippedCount, systemImage: "doc.on.doc", tint: .secondary)
+            ImportMetricPill(title: "Failed", value: preview.failedCount, systemImage: "xmark.octagon", tint: .red)
+        }
+    }
+}
+
+private struct ImportMetricPill: View {
+    let title: String
+    let value: Int
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        ImportPanel {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(tint)
+                    .font(.title3)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(value)")
+                        .font(.title3.bold())
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+        }
+    }
+}
+
+private struct ImportOutcomeSection: View {
+    let title: String
+    let subtitle: String
+    let outcomes: [(offset: Int, outcome: ImportLineOutcome)]
+    let accounts: [AccountID: Account]
+
+    var body: some View {
+        if !outcomes.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(outcomes, id: \.offset) { item in
+                    ImportOutcomeCard(
+                        index: item.offset + 1,
+                        outcome: item.outcome,
+                        accounts: accounts
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct ImportOutcomeCard: View {
+    let index: Int
+    let outcome: ImportLineOutcome
+    let accounts: [AccountID: Account]
+
+    var body: some View {
+        ImportPanel {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(tint)
+                    .font(.title3)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(title)
+                                .font(.headline)
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Text(amountText)
+                            .font(.subheadline.monospacedDigit().bold())
+                    }
+
+                    details
+                }
+            }
+        }
+    }
+
+    private var title: String {
+        switch outcome {
+        case .proposed(let line, _, _), .skippedDuplicate(let line, _, _), .failed(let line, _):
+            "#\(index) · \(line.description)"
+        }
+    }
+
+    private var subtitle: String {
+        switch outcome {
+        case .proposed(let line, _, _), .skippedDuplicate(let line, _, _), .failed(let line, _):
+            ImportPreviewFormatting.lineSubtitle(line)
+        }
+    }
+
+    private var amountText: String {
+        switch outcome {
+        case .proposed(let line, _, _), .skippedDuplicate(let line, _, _), .failed(let line, _):
+            MoneyDisplay.string(amount: line.amount, currency: line.currency)
+        }
+    }
+
+    private var systemImage: String {
+        switch outcome {
+        case .proposed:
+            "doc.badge.plus"
+        case .skippedDuplicate:
+            "doc.on.doc"
+        case .failed:
+            "xmark.octagon"
+        }
+    }
+
+    private var tint: Color {
+        switch outcome {
+        case .proposed:
+            .blue
+        case .skippedDuplicate:
+            .secondary
+        case .failed:
+            .red
+        }
+    }
+
+    @ViewBuilder
+    private var details: some View {
+        switch outcome {
+        case .proposed(_, let draft, let warnings):
+            VStack(alignment: .leading, spacing: 6) {
+                Text(accountRoute(for: draft))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                if warnings.isEmpty {
+                    ImportChip(text: "Proposed draft", tint: .blue)
+                } else {
+                    ForEach(warnings.indices, id: \.self) { index in
+                        ImportChip(
+                            text: ImportPreviewFormatting.warningMessage(warnings[index]),
+                            tint: .orange
+                        )
+                    }
+                }
+            }
+
+        case .skippedDuplicate(_, let origin, let existingTransactionID):
+            VStack(alignment: .leading, spacing: 6) {
+                ImportChip(text: "Duplicate external ID: \(origin.externalID)", tint: .secondary)
+                Text("Existing transaction: \(ImportPreviewFormatting.shortID(existingTransactionID))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+        case .failed(_, let error):
+            ImportChip(
+                text: ImportPreviewFormatting.importErrorMessage(error),
+                tint: .red
+            )
+        }
+    }
+
+    private func accountRoute(for transaction: AccountantCore.Transaction) -> String {
+        let names = transaction.postings
+            .enumerated()
+            .sorted { lhs, rhs in
+                let lhsIsNegative = lhs.element.money.amount < .zero
+                let rhsIsNegative = rhs.element.money.amount < .zero
+
+                if lhsIsNegative != rhsIsNegative {
+                    return lhsIsNegative && !rhsIsNegative
+                }
+
+                return lhs.offset < rhs.offset
+            }
+            .compactMap { accounts[$0.element.accountID]?.name }
+
+        return names.isEmpty ? "Unmapped accounts" : names.joined(separator: " → ")
+    }
+}
+
+private struct ImportChip: View {
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.bold())
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tint.opacity(0.12), in: Capsule())
+    }
+}
+
+private struct ImportStatusCard: View {
+    let title: String
+    let message: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        ImportPanel {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(tint)
+                    .font(.title3)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct ImportPanel<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(16)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06))
+            }
+            .shadow(color: Color.black.opacity(0.04), radius: 12, x: 0, y: 6)
+    }
+}
+
+private extension ImportPreview {
+    var indexedOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
+        outcomes.enumerated().map { (offset: $0.offset, outcome: $0.element) }
+    }
+
+    var proposedOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
+        indexedOutcomes.filter { item in
+            if case .proposed = item.outcome { return true }
+            return false
+        }
+    }
+
+    var warningOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
+        indexedOutcomes.filter { item in
+            if case .proposed(_, _, let warnings) = item.outcome {
+                return !warnings.isEmpty
+            }
+            return false
+        }
+    }
+
+    var skippedOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
+        indexedOutcomes.filter { item in
+            if case .skippedDuplicate = item.outcome { return true }
+            return false
+        }
+    }
+
+    var failedOutcomes: [(offset: Int, outcome: ImportLineOutcome)] {
+        indexedOutcomes.filter { item in
+            if case .failed = item.outcome { return true }
+            return false
+        }
+    }
+
+    var proposedCount: Int { proposedOutcomes.count }
+    var skippedCount: Int { skippedOutcomes.count }
+    var failedCount: Int { failedOutcomes.count }
+
+    var warningCount: Int {
+        outcomes.reduce(0) { partialResult, outcome in
+            if case .proposed(_, _, let warnings) = outcome {
+                return partialResult + warnings.count
+            }
+
+            return partialResult
+        }
+    }
+}
+
+private enum ImportPreviewFormatting {
+    static func parseErrorMessage(_ error: Error) -> String {
+        guard let error = error as? BankLineParseError else {
+            return error.localizedDescription
+        }
+
+        switch error {
+        case .emptyInput:
+            return "The CSV input is empty."
+        case .missingHeader:
+            return "The CSV file has no header row."
+        case .missingRequiredColumn(let column):
+            return "Missing required column: \(column)."
+        case .rowColumnCountMismatch(let row, let expected, let actual):
+            return "Row \(row) has \(actual) columns, but the header has \(expected)."
+        case .missingRequiredValue(let row, let column):
+            return "Row \(row) is missing a value for \(column)."
+        case .invalidDate(let row, let column, let value, let expectedFormats):
+            return "Row \(row) has invalid \(column) date \(value). Expected: \(expectedFormats.joined(separator: ", "))."
+        case .invalidAmount(let row, let column, let value):
+            return "Row \(row) has invalid \(column) amount \(value)."
+        case .invalidCurrency(let row, let column, let value):
+            return "Row \(row) has invalid \(column) currency \(value). Use a three-letter code like EUR."
+        case .malformedCSV(let row, let message):
+            return "Row \(row) is malformed: \(message)"
+        }
+    }
+
+    static func importErrorMessage(_ error: ImportError) -> String {
+        switch error {
+        case .unknownAccount(let accountID):
+            return "Unknown account \(shortID(accountID))."
+        case .accountArchived(let accountID):
+            return "Account \(shortID(accountID)) is archived."
+        case .invalidTransaction:
+            return "Invalid transaction."
+        case .duplicateExternalIDInBatch(let origin):
+            return "Duplicate external ID in this file: \(origin.externalID)."
+        case .classificationFailed(let error):
+            return classificationErrorMessage(error)
+        }
+    }
+
+    static func warningMessage(_ warning: ImportWarning) -> String {
+        switch warning {
+        case .missingExternalID:
+            return "Missing external ID: duplicate detection will be weaker."
+        }
+    }
+
+    static func lineSubtitle(_ line: BankLine) -> String {
+        var parts = [DateDisplay.transactionDate(line.date)]
+
+        if let externalID = line.externalID {
+            parts.append("ID \(externalID)")
+        }
+
+        return parts.joined(separator: " · ")
+    }
+
+    static func shortID(_ id: TransactionID?) -> String {
+        guard let id else { return "unknown" }
+        return String(id.rawValue.uuidString.prefix(8))
+    }
+
+    private static func shortID(_ id: AccountID) -> String {
+        String(id.rawValue.uuidString.prefix(8))
+    }
+
+    private static func classificationErrorMessage(_ error: ClassificationError) -> String {
+        switch error {
+        case .cannotApplyToFinalized:
+            return "Cannot classify a finalized transaction."
+        case .statementPostingNotFound:
+            return "Statement posting was not found."
+        case .counterpartyPostingNotFound:
+            return "Counterparty posting was not found."
+        case .ambiguousCounterpartyPostings:
+            return "Counterparty posting is ambiguous."
+        }
+    }
+}
+
+#Preview {
+    NavigationStack {
+        ImportPreviewScreen()
+            .environmentObject(AppState(repository: ImportPreviewRepository()))
+    }
+}
+
+private struct ImportPreviewRepository: LedgerRepository {
+    func loadOrCreate() async throws -> Ledger {
+        var ledger = Ledger()
+        ledger.addAccount(Account(name: "Bank", kind: .asset))
+        ledger.addAccount(Account(name: "Uncategorized", kind: .clearing))
+        return ledger
+    }
+
+    func save(_ ledger: Ledger) async throws {}
+}
