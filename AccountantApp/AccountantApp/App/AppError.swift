@@ -17,19 +17,19 @@ struct AppError: Identifiable {
         case let LedgerStoreError.unsupportedSchemaVersion(version):
             self.message = "This ledger file uses unsupported schema version \(version)."
 
-        case LedgerError.accountNotFound, LedgerError.unknownAccount:
+        case LedgerError.accountNotFound(_), LedgerError.unknownAccount(_):
             self.message = "This account could not be found."
 
-        case LedgerError.accountArchived:
+        case LedgerError.accountArchived(_):
             self.message = "This account is archived. Restore it before using it for new changes."
 
-        case LedgerError.accountHasOpenDrafts:
+        case LedgerError.accountHasOpenDrafts(_):
             self.message = "This account has open draft transactions. Finalize or remove them before archiving it."
 
-        case LedgerError.transactionNotFound:
+        case LedgerError.transactionNotFound(_):
             self.message = "This transaction could not be found."
 
-        case LedgerError.transactionFinalized:
+        case LedgerError.transactionFinalized(_):
             self.message = "This transaction is finalized and cannot be edited."
 
         case LedgerError.mixedCurrencies:
@@ -41,7 +41,7 @@ struct AppError: Identifiable {
         case LedgerError.emptyTransaction:
             self.message = "This transaction has no postings."
 
-        case LedgerError.duplicateTransactionID:
+        case LedgerError.duplicateTransactionID(_):
             self.message = "A transaction with this ID already exists."
 
         case TransactionCreationError.nonPositiveAmount(_):
