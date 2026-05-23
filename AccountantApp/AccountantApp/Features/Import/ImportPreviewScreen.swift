@@ -483,12 +483,14 @@ private struct ImportOutcomeSection: View {
                         .foregroundStyle(.secondary)
                 }
 
-                ForEach(outcomes, id: \.offset) { item in
-                    ImportOutcomeCard(
-                        index: item.offset + 1,
-                        outcome: item.outcome,
-                        accounts: accounts
-                    )
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(outcomes, id: \.offset) { item in
+                        ImportOutcomeCard(
+                            index: item.offset + 1,
+                            outcome: item.outcome,
+                            accounts: accounts
+                        )
+                    }
                 }
             }
         }
