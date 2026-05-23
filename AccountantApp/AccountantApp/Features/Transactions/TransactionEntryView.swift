@@ -215,12 +215,16 @@ struct TransactionEntryView: View {
         activeAccounts(matching: selectedKind.counterpartAccountKinds)
     }
 
-    private var parsedAmount: Decimal? {
+    private var enteredAmount: Decimal? {
         let normalized = amountText
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: ",", with: ".")
 
-        guard let amount = Decimal(string: normalized), amount > .zero else {
+        return Decimal(string: normalized)
+    }
+
+    private var parsedAmount: Decimal? {
+        guard let amount = enteredAmount, amount > .zero else {
             return nil
         }
 
@@ -239,6 +243,10 @@ struct TransactionEntryView: View {
 
         if amountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Enter a positive amount."
+        }
+
+        if enteredAmount == nil {
+            return "Enter a valid amount."
         }
 
         if parsedAmount == nil {
@@ -267,21 +275,7 @@ struct TransactionEntryView: View {
     private func activeAccounts(matching kinds: [AccountKind]) -> [Account] {
         appState.ledger.accounts.values
             .filter { $0.status == .active && kinds.contains($0.kind) }
-            .sorted {
-                let lhsKindIndex = AccountKindCatalog.sortIndex(for: $0.kind)
-                let rhsKindIndex = AccountKindCatalog.sortIndex(for: $1.kind)
-
-                if lhsKindIndex != rhsKindIndex {
-                    return lhsKindIndex < rhsKindIndex
-                }
-
-                let nameComparison = $0.name.localizedCaseInsensitiveCompare($1.name)
-                if nameComparison != .orderedSame {
-                    return nameComparison == .orderedAscending
-                }
-
-                return $0.id.rawValue.uuidString < $1.id.rawValue.uuidString
-            }
+            .sortedForDisplay()
     }
 
     private func resetSelectionsForCurrentKind() {

@@ -57,7 +57,18 @@ struct TransactionRowView: View {
 
     private var subtitle: String {
         let accountNames = transaction.postings
-            .compactMap { accounts[$0.accountID]?.name }
+            .enumerated()
+            .sorted { lhs, rhs in
+                let lhsIsNegative = lhs.element.money.amount < .zero
+                let rhsIsNegative = rhs.element.money.amount < .zero
+
+                if lhsIsNegative != rhsIsNegative {
+                    return lhsIsNegative && !rhsIsNegative
+                }
+
+                return lhs.offset < rhs.offset
+            }
+            .compactMap { accounts[$0.element.accountID]?.name }
             .joined(separator: " → ")
 
         if accountNames.isEmpty {
