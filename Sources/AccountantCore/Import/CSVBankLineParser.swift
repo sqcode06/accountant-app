@@ -77,6 +77,7 @@ public struct CSVBankLineParser: BankLineParser {
         let currencyColumn = try requiredColumn(columns.currency, in: headerIndex)
         let descriptionColumn = try requiredColumn(columns.description, in: headerIndex)
         let externalIDColumn = columns.externalID.flatMap { headerIndex[normalizedHeader($0)] }
+        let dateParsers = makeDateParsers()
 
         return try rows.dropFirst().map { row in
             guard row.fields.count == header.fields.count else {
@@ -93,7 +94,12 @@ public struct CSVBankLineParser: BankLineParser {
             let descriptionText = try requiredValue(in: row, column: descriptionColumn, name: columns.description)
             let externalIDText = externalIDColumn.flatMap { optionalValue(in: row, column: $0) }
 
-            let date = try parseDate(dateText, row: row.rowNumber, column: columns.date)
+            let date = try parseDate(
+                dateText,
+                row: row.rowNumber,
+                column: columns.date,
+                parsers: dateParsers
+            )
             let amount = try parseAmount(amountText, row: row.rowNumber, column: columns.amount)
             let currency = try parseCurrency(currencyText, row: row.rowNumber, column: columns.currency)
 
@@ -130,15 +136,14 @@ public struct CSVBankLineParser: BankLineParser {
         return value.isEmpty ? nil : value
     }
 
-    private func parseDate(_ value: String, row: Int, column: String) throws -> Date {
-        for format in dateFormats {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.calendar = Calendar(identifier: .gregorian)
-            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-            formatter.dateFormat = format
-
-            if let date = formatter.date(from: value) {
+    private func parseDate(
+        _ value: String,
+        row: Int,
+        column: String,
+        parsers: [(format: String, formatter: DateFormatter)]
+    ) throws -> Date {
+        for parser in parsers {
+            if let date = parser.formatter.date(from: value) {
                 return date
             }
         }
@@ -149,6 +154,18 @@ public struct CSVBankLineParser: BankLineParser {
             value: value,
             expectedFormats: dateFormats
         )
+    }
+
+    private func makeDateParsers() -> [(format: String, formatter: DateFormatter)] {
+        dateFormats.map { format in
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+
+            return (format: format, formatter: formatter)
+        }
     }
 
     private func parseAmount(_ value: String, row: Int, column: String) throws -> Decimal {
@@ -218,7 +235,8 @@ private func parseCSVRows(_ text: String, delimiter: Character) throws -> [Parse
                 } else {
                     isInsideQuotes = false
                 }
-            } else if field.isEmpty {
+            } else if field.trimmingCharacters(in: .whitespaces).isEmpty {
+                field = ""
                 isInsideQuotes = true
             } else {
                 throw BankLineParseError.malformedCSV(

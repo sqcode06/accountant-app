@@ -171,6 +171,19 @@ date,amount,currency,description
 
         XCTAssertEqual(lines.first?.description, "Coffee \"special\"")
     }
+    
+    func testQuotedFieldMayHaveLeadingWhitespaceBeforeOpeningQuote() throws {
+        let parser = CSVBankLineParser(source: "FixtureBank")
+        let csv = """
+date,amount,currency,description
+2026-05-01,-12.34,EUR, "Coffee"
+"""
+
+        let lines = try parser.parse(csv)
+
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertEqual(lines[0].description, "Coffee")
+    }
 
     func testEmptyInputThrowsEmptyInput() {
         let parser = CSVBankLineParser(source: "FixtureBank")
