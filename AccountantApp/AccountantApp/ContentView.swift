@@ -5,15 +5,34 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if appState.isLoading {
-                    ProgressView("Loading ledger...")
-                } else {
-                    AccountListView()
+        TabView {
+            NavigationStack {
+                Group {
+                    if appState.isLoading {
+                        ProgressView("Loading ledger...")
+                    } else {
+                        DashboardView()
+                    }
                 }
+                .navigationTitle("Summary")
             }
-            .navigationTitle("Accountant")
+            .tabItem {
+                Label("Summary", systemImage: "chart.pie.fill")
+            }
+
+            NavigationStack {
+                Group {
+                    if appState.isLoading {
+                        ProgressView("Loading ledger...")
+                    } else {
+                        AccountListView()
+                    }
+                }
+                .navigationTitle("Accounts")
+            }
+            .tabItem {
+                Label("Accounts", systemImage: "tray.full.fill")
+            }
         }
         .alert(item: $appState.lastError) { error in
             Alert(
