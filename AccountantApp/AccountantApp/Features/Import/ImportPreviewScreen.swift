@@ -14,6 +14,7 @@ struct ImportPreviewScreen: View {
     @State private var applyReport: ImportApplyReport?
     @State private var isApplying = false
     @State private var isBuildingPreview = false
+    @State private var previewConfiguration: ImportPreviewConfiguration?
 
     var body: some View {
         ScrollView {
@@ -136,6 +137,15 @@ struct ImportPreviewScreen: View {
             .ignoresSafeArea()
         }
         .onAppear(perform: ensureDefaultSelections)
+        .onChange(of: source) { _, _ in
+            resetPreview()
+        }
+        .onChange(of: selectedStatementAccountID) { _, _ in
+            resetPreview()
+        }
+        .onChange(of: selectedCounterpartyAccountID) { _, _ in
+            resetPreview()
+        }
     }
 
     private var activeAccounts: [Account] {
@@ -158,6 +168,27 @@ struct ImportPreviewScreen: View {
         && !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         && !csvText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+    
+    private var currentPreviewConfiguration: ImportPreviewConfiguration? {
+        guard let statementAccountID = selectedStatementAccountID,
+              let counterpartyAccountID = selectedCounterpartyAccountID else {
+            return nil
+        }
+
+        let cleanedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedCSV = csvText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanedSource.isEmpty, !cleanedCSV.isEmpty else {
+            return nil
+        }
+
+        return ImportPreviewConfiguration(
+            source: cleanedSource,
+            csvText: csvText,
+            statementAccountID: statementAccountID,
+            counterpartyAccountID: counterpartyAccountID
+        )
+    }
 
     private func ensureDefaultSelections() {
         if selectedStatementAccountID == nil {
@@ -173,16 +204,14 @@ struct ImportPreviewScreen: View {
     private func buildPreview() async {
         ensureDefaultSelections()
 
-        guard let statementAccountID = selectedStatementAccountID,
-              let counterpartyAccountID = selectedCounterpartyAccountID else {
+        guard let configuration = currentPreviewConfiguration else {
             parseErrorMessage = "Create at least one statement account and one fallback counterparty account before importing."
             preview = nil
             previewPipeline = nil
+            previewConfiguration = nil
             return
         }
 
-        let cleanedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        let csvText = csvText
         let ledger = appState.ledger
         let dateFormats = ["yyyy-MM-dd", "dd.MM.yyyy"]
 
@@ -192,33 +221,43 @@ struct ImportPreviewScreen: View {
         do {
             let builtPreview = try await Task.detached(priority: .userInitiated) {
                 let parser = CSVBankLineParser(
-                    source: cleanedSource,
+                    source: configuration.source,
                     dateFormats: dateFormats
                 )
 
-                let lines = try parser.parse(csvText)
+                let lines = try parser.parse(configuration.csvText)
 
                 let pipeline = ImportPipeline(
-                    source: cleanedSource,
-                    statementAccountID: statementAccountID,
-                    defaultCounterpartyAccountID: counterpartyAccountID
+                    source: configuration.source,
+                    statementAccountID: configuration.statementAccountID,
+                    defaultCounterpartyAccountID: configuration.counterpartyAccountID
                 )
 
                 return pipeline.previewImport(lines: lines, into: ledger)
             }.value
 
+            guard currentPreviewConfiguration == configuration else {
+                return
+            }
+
             preview = builtPreview
             previewPipeline = ImportPipeline(
-                source: cleanedSource,
-                statementAccountID: statementAccountID,
-                defaultCounterpartyAccountID: counterpartyAccountID
+                source: configuration.source,
+                statementAccountID: configuration.statementAccountID,
+                defaultCounterpartyAccountID: configuration.counterpartyAccountID
             )
+            previewConfiguration = configuration
             parseErrorMessage = nil
             applyReport = nil
         } catch {
+            guard currentPreviewConfiguration == configuration else {
+                return
+            }
+
             parseErrorMessage = ImportPreviewFormatting.parseErrorMessage(error)
             preview = nil
             previewPipeline = nil
+            previewConfiguration = nil
             applyReport = nil
         }
     }
@@ -226,6 +265,15 @@ struct ImportPreviewScreen: View {
     @MainActor
     private func applyPreview() async {
         guard let preview, let previewPipeline else { return }
+
+        guard previewConfiguration == currentPreviewConfiguration else {
+            parseErrorMessage = "Import settings changed. Build a new preview before applying."
+            self.preview = nil
+            self.previewPipeline = nil
+            self.previewConfiguration = nil
+            applyReport = nil
+            return
+        }
 
         isApplying = true
         defer { isApplying = false }
@@ -238,6 +286,7 @@ struct ImportPreviewScreen: View {
     private func resetPreview() {
         preview = nil
         previewPipeline = nil
+        previewConfiguration = nil
         parseErrorMessage = nil
         applyReport = nil
     }
@@ -800,4 +849,11 @@ private struct ImportPreviewRepository: LedgerRepository {
     }
 
     func save(_ ledger: Ledger) async throws {}
+}
+
+private struct ImportPreviewConfiguration: Equatable, Sendable {
+    let source: String
+    let csvText: String
+    let statementAccountID: AccountID
+    let counterpartyAccountID: AccountID
 }
