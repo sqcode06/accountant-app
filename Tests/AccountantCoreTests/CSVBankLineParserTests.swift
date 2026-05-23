@@ -185,6 +185,48 @@ date,amount,currency,description
         XCTAssertEqual(lines[0].description, "Coffee")
     }
 
+    func testParsesCSVWithUTF8BOMInHeader() throws {
+        let parser = CSVBankLineParser(source: "FixtureBank")
+        let csv = """
+\u{FEFF}date,amount,currency,description
+2026-05-01,-12.34,EUR,Coffee
+"""
+
+        let lines = try parser.parse(csv)
+
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertEqual(lines[0].description, "Coffee")
+    }
+
+    func testCharactersAfterClosingQuoteAreRejected() {
+        let parser = CSVBankLineParser(source: "FixtureBank")
+        let csv = """
+date,amount,currency,description
+2026-05-01,-12.34,EUR,"Coffee"oops
+"""
+
+        XCTAssertThrowsError(try parser.parse(csv)) { error in
+            XCTAssertEqual(
+                error as? BankLineParseError,
+                .malformedCSV(row: 2, message: "Unexpected character after closing quote.")
+            )
+        }
+    }
+
+    func testWhitespaceAfterClosingQuoteBeforeDelimiterIsAllowed() throws {
+        let parser = CSVBankLineParser(source: "FixtureBank")
+        let csv = """
+date,amount,currency,description,external_id
+2026-05-01,-12.34,EUR,"Coffee"   ,CARD-1
+"""
+
+        let lines = try parser.parse(csv)
+
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertEqual(lines[0].description, "Coffee")
+        XCTAssertEqual(lines[0].externalID, "CARD-1")
+    }
+
     func testEmptyInputThrowsEmptyInput() {
         let parser = CSVBankLineParser(source: "FixtureBank")
 

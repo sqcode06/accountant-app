@@ -205,6 +205,7 @@ private func parseCSVRows(_ text: String, delimiter: Character) throws -> [Parse
     var rowNumber = 1
     var isInsideQuotes = false
     var hasPendingRowContent = false
+    var didJustCloseQuotedField = false
 
     var index = text.startIndex
 
@@ -234,10 +235,12 @@ private func parseCSVRows(_ text: String, delimiter: Character) throws -> [Parse
                     index = nextIndex
                 } else {
                     isInsideQuotes = false
+                    didJustCloseQuotedField = true
                 }
             } else if field.trimmingCharacters(in: .whitespaces).isEmpty {
                 field = ""
                 isInsideQuotes = true
+                didJustCloseQuotedField = false
             } else {
                 throw BankLineParseError.malformedCSV(
                     row: rowNumber,
@@ -247,8 +250,10 @@ private func parseCSVRows(_ text: String, delimiter: Character) throws -> [Parse
         } else if character == delimiter && !isInsideQuotes {
             finishField()
             hasPendingRowContent = true
+            didJustCloseQuotedField = false
         } else if (character == "\n" || character == "\r") && !isInsideQuotes {
             finishRow()
+            didJustCloseQuotedField = false
 
             if character == "\r" {
                 let nextIndex = text.index(after: index)
@@ -256,6 +261,15 @@ private func parseCSVRows(_ text: String, delimiter: Character) throws -> [Parse
                     index = nextIndex
                 }
             }
+        } else if didJustCloseQuotedField {
+            guard character.isWhitespace else {
+                throw BankLineParseError.malformedCSV(
+                    row: rowNumber,
+                    message: "Unexpected character after closing quote."
+                )
+            }
+
+            hasPendingRowContent = true
         } else {
             field.append(character)
             hasPendingRowContent = true
@@ -290,5 +304,12 @@ private func makeHeaderIndex(from headers: [String]) -> [String: Int] {
 }
 
 private func normalizedHeader(_ value: String) -> String {
-    value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if normalized.first == "\u{FEFF}" {
+        normalized.removeFirst()
+        normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    return normalized.lowercased()
 }
