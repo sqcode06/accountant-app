@@ -63,7 +63,7 @@ struct AccountantAppTests {
     @MainActor
     @Test func renameAccountUpdatesVisibleLedgerAndSaves() async throws {
         let bank = Account(name: "Old Bank", kind: .asset)
-        let repository = InMemoryLedgerRepository(ledger: ledger(with: [bank]))
+        let repository = InMemoryLedgerRepository(ledger: makeLedger(with: [bank]))
         let appState = AppState(repository: repository)
 
         await appState.loadIfNeeded()
@@ -77,7 +77,7 @@ struct AccountantAppTests {
     @MainActor
     @Test func archiveAndRestoreAccountRoundTrip() async throws {
         let bank = Account(name: "Bank", kind: .asset)
-        let repository = InMemoryLedgerRepository(ledger: ledger(with: [bank]))
+        let repository = InMemoryLedgerRepository(ledger: makeLedger(with: [bank]))
         let appState = AppState(repository: repository)
 
         await appState.loadIfNeeded()
@@ -307,7 +307,7 @@ private struct TransactionFixture {
     let salary = Account(name: "Salary", kind: .income)
 
     var ledger: Ledger {
-        ledger(with: [bank, savings, groceries, salary])
+        makeLedger(with: [bank, savings, groceries, salary])
     }
 
     func money(_ amount: Decimal) -> Money {
@@ -315,7 +315,7 @@ private struct TransactionFixture {
     }
 }
 
-private func ledger(with accounts: [Account]) -> Ledger {
+private func makeLedger(with accounts: [Account]) -> Ledger {
     var ledger = Ledger()
 
     for account in accounts {
