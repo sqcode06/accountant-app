@@ -572,7 +572,8 @@ private struct ImportClassificationRuleCard: View {
             Spacer()
 
             Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
+                Label("Delete rule", systemImage: "trash")
+                    .labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
         }
