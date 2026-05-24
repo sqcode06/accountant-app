@@ -202,14 +202,6 @@ struct ReconciliationView: View {
             return text.replacingOccurrences(of: ".", with: "")
         }
 
-        if let separator = dotIndex ?? commaIndex {
-            let fractionLength = text.distance(from: text.index(after: separator), to: text.endIndex)
-
-            if fractionLength == 3 {
-                return text.replacingOccurrences(of: String(text[separator]), with: "")
-            }
-        }
-
         return text.replacingOccurrences(of: ",", with: ".")
     }
 
