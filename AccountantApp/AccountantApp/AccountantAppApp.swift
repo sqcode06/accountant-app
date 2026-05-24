@@ -6,8 +6,9 @@ struct AccountantAppApp: App {
 
     init() {
         let repository = LocalJSONLedgerRepository.live()
+        let classificationRuleRepository = LocalJSONClassificationRuleRepository.live()
         _appState = StateObject(
-            wrappedValue: AppState(repository: repository)
+            wrappedValue: AppState(repository: repository, classificationRuleRepository: classificationRuleRepository)
         )
     }
 

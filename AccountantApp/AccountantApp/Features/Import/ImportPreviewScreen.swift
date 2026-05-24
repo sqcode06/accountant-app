@@ -15,126 +15,17 @@ struct ImportPreviewScreen: View {
     @State private var isApplying = false
     @State private var isBuildingPreview = false
     @State private var previewConfiguration: ImportPreviewConfiguration?
+    @State private var newRuleNeedle = ""
+    @State private var newRuleMemo = ""
+    @State private var newRuleCounterpartyAccountID: AccountID?
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                ImportHeroCard()
-
-                if statementAccounts.isEmpty || counterpartyAccounts.isEmpty {
-                    ImportMissingAccountsCard(
-                        needsStatementAccount: statementAccounts.isEmpty,
-                        needsCounterpartyAccount: counterpartyAccounts.isEmpty
-                    )
-                }
-
-                ImportPanel {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Statement source")
-                            .font(.headline)
-
-                        TextField("Source name", text: $source)
-                            .textInputAutocapitalization(.words)
-                            .textFieldStyle(.roundedBorder)
-
-                        Picker("Statement account", selection: $selectedStatementAccountID) {
-                            Text("Select account").tag(AccountID?.none)
-                            ForEach(statementAccounts, id: \.id) { account in
-                                Text(accountPickerTitle(account)).tag(Optional(account.id))
-                            }
-                        }
-                        .pickerStyle(.menu)
-
-                        Picker("Fallback counterparty", selection: $selectedCounterpartyAccountID) {
-                            Text("Select account").tag(AccountID?.none)
-                            ForEach(counterpartyAccounts, id: \.id) { account in
-                                Text(accountPickerTitle(account)).tag(Optional(account.id))
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                }
-
-                ImportPanel {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("CSV input")
-                                .font(.headline)
-
-                            Spacer()
-
-                            Button("Use sample CSV") {
-                                csvText = Self.sampleCSV
-                                resetPreview()
-                            }
-                            .buttonStyle(.bordered)
-                        }
-
-                        Text("Expected columns: date, amount, currency, description, external_id. Custom bank-specific mapping can come later.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-
-                        TextEditor(text: $csvText)
-                            .font(.system(.callout, design: .monospaced))
-                            .frame(minHeight: 170)
-                            .padding(8)
-                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .onChange(of: csvText) { _, _ in
-                                resetPreview()
-                            }
-
-                        Button {
-                            Task {
-                                await buildPreview()
-                            }
-                        } label: {
-                            if isBuildingPreview {
-                                ProgressView()
-                                    .frame(maxWidth: .infinity)
-                            } else {
-                                Label("Preview Import", systemImage: "doc.text.magnifyingglass")
-                                    .frame(maxWidth: .infinity)
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!canPreview || isBuildingPreview)
-                    }
-                }
-
-                if let parseErrorMessage {
-                    ImportStatusCard(
-                        title: "Could not build preview",
-                        message: parseErrorMessage,
-                        systemImage: "exclamationmark.triangle.fill",
-                        tint: .orange
-                    )
-                }
-
-                if let preview {
-                    ImportPreviewResultsView(
-                        preview: preview,
-                        accounts: appState.ledger.accounts,
-                        applyReport: applyReport,
-                        isApplying: isApplying,
-                        onApply: {
-                            Task { await applyPreview() }
-                        }
-                    )
-                }
-            }
-            .padding()
+            content
+                .padding()
         }
         .background {
-            LinearGradient(
-                colors: [
-                    Color.cyan.opacity(0.12),
-                    Color.indigo.opacity(0.08),
-                    Color(.systemBackground)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            importBackground
         }
         .onAppear(perform: ensureDefaultSelections)
         .onChange(of: source) { _, _ in
@@ -146,6 +37,174 @@ struct ImportPreviewScreen: View {
         .onChange(of: selectedCounterpartyAccountID) { _, _ in
             resetPreview()
         }
+        .onChange(of: appState.classificationRules) { _, _ in
+            resetPreview()
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ImportHeroCard()
+            missingAccountsSection
+            sourceSection
+            classificationRulesSection
+            csvInputSection
+            parseErrorSection
+            previewResultsSection
+        }
+    }
+
+    @ViewBuilder
+    private var missingAccountsSection: some View {
+        if statementAccounts.isEmpty || counterpartyAccounts.isEmpty {
+            ImportMissingAccountsCard(
+                needsStatementAccount: statementAccounts.isEmpty,
+                needsCounterpartyAccount: counterpartyAccounts.isEmpty
+            )
+        }
+    }
+
+    private var sourceSection: some View {
+        ImportPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Statement source")
+                    .font(.headline)
+
+                TextField("Source name", text: $source)
+                    .textInputAutocapitalization(.words)
+                    .textFieldStyle(.roundedBorder)
+
+                Picker("Statement account", selection: $selectedStatementAccountID) {
+                    Text("Select account").tag(AccountID?.none)
+                    ForEach(statementAccounts, id: \.id) { account in
+                        Text(accountPickerTitle(account)).tag(Optional(account.id))
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Picker("Fallback counterparty", selection: $selectedCounterpartyAccountID) {
+                    Text("Select account").tag(AccountID?.none)
+                    ForEach(counterpartyAccounts, id: \.id) { account in
+                        Text(accountPickerTitle(account)).tag(Optional(account.id))
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+        }
+    }
+
+    private var classificationRulesSection: some View {
+        ImportClassificationRulesPanel(
+            rules: appState.classificationRules,
+            accounts: appState.ledger.accounts,
+            applicableRuleCount: appState.applicableClassificationRuleCount,
+            counterpartyAccounts: counterpartyAccounts,
+            selectedCounterpartyAccountID: $newRuleCounterpartyAccountID,
+            needle: $newRuleNeedle,
+            cleanedMemo: $newRuleMemo,
+            onAdd: addClassificationRule,
+            onDelete: deleteClassificationRule
+        )
+    }
+
+    private var csvInputSection: some View {
+        ImportPanel {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("CSV input")
+                        .font(.headline)
+
+                    Spacer()
+
+                    Button("Use sample CSV") {
+                        csvText = Self.sampleCSV
+                        resetPreview()
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Text("Expected columns: date, amount, currency, description, external_id. Custom bank-specific mapping can come later.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                TextEditor(text: $csvText)
+                    .font(.system(.callout, design: .monospaced))
+                    .frame(minHeight: 170)
+                    .padding(8)
+                    .background(
+                        Color(.secondarySystemBackground),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    )
+                    .onChange(of: csvText) { _, _ in
+                        resetPreview()
+                    }
+
+                previewButton
+            }
+        }
+    }
+
+    private var previewButton: some View {
+        Button {
+            Task {
+                await buildPreview()
+            }
+        } label: {
+            previewButtonLabel
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(!canPreview || isBuildingPreview)
+    }
+
+    @ViewBuilder
+    private var previewButtonLabel: some View {
+        if isBuildingPreview {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+        } else {
+            Label("Preview Import", systemImage: "doc.text.magnifyingglass")
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var parseErrorSection: some View {
+        if let parseErrorMessage {
+            ImportStatusCard(
+                title: "Could not build preview",
+                message: parseErrorMessage,
+                systemImage: "exclamationmark.triangle.fill",
+                tint: .orange
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var previewResultsSection: some View {
+        if let preview {
+            ImportPreviewResultsView(
+                preview: preview,
+                accounts: appState.ledger.accounts,
+                applyReport: applyReport,
+                isApplying: isApplying,
+                onApply: {
+                    Task { await applyPreview() }
+                }
+            )
+        }
+    }
+
+    private var importBackground: some View {
+        LinearGradient(
+            colors: [
+                Color.cyan.opacity(0.12),
+                Color.indigo.opacity(0.08),
+                Color(.systemBackground)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
     }
 
     private var activeAccounts: [Account] {
@@ -186,7 +245,8 @@ struct ImportPreviewScreen: View {
             source: cleanedSource,
             csvText: cleanedCSV,
             statementAccountID: statementAccountID,
-            counterpartyAccountID: counterpartyAccountID
+            counterpartyAccountID: counterpartyAccountID,
+            classificationRules: appState.classificationRules
         )
     }
 
@@ -213,6 +273,7 @@ struct ImportPreviewScreen: View {
         }
 
         let ledger = appState.ledger
+        let classifier = appState.transactionClassifier()
         let dateFormats = ["yyyy-MM-dd", "dd.MM.yyyy"]
 
         isBuildingPreview = true
@@ -233,7 +294,7 @@ struct ImportPreviewScreen: View {
                     defaultCounterpartyAccountID: configuration.counterpartyAccountID
                 )
 
-                return pipeline.previewImport(lines: lines, into: ledger)
+                return pipeline.previewImport(lines: lines, into: ledger, classifier: classifier)
             }.value
 
             guard currentPreviewConfiguration == configuration else {
@@ -289,6 +350,29 @@ struct ImportPreviewScreen: View {
         previewConfiguration = nil
         parseErrorMessage = nil
         applyReport = nil
+    }
+
+    private func addClassificationRule() {
+        Task {
+            let success = await appState.createDescriptionContainsRule(
+                needle: newRuleNeedle,
+                counterpartyAccountID: newRuleCounterpartyAccountID,
+                cleanedMemo: newRuleMemo
+            )
+
+            guard success else { return }
+
+            newRuleNeedle = ""
+            newRuleMemo = ""
+            resetPreview()
+        }
+    }
+
+    private func deleteClassificationRule(_ rule: ClassificationRuleConfiguration) {
+        Task {
+            _ = await appState.deleteClassificationRule(id: rule.id)
+            resetPreview()
+        }
     }
 
     private func accountPickerTitle(_ account: Account) -> String {
@@ -358,6 +442,139 @@ private struct ImportMissingAccountsCard: View {
         }
 
         return "Create \(parts.joined(separator: " and ")) in Accounts before previewing imports."
+    }
+}
+
+
+private struct ImportClassificationRulesPanel: View {
+    let rules: [ClassificationRuleConfiguration]
+    let accounts: [AccountID: Account]
+    let applicableRuleCount: Int
+    let counterpartyAccounts: [Account]
+    @Binding var selectedCounterpartyAccountID: AccountID?
+    @Binding var needle: String
+    @Binding var cleanedMemo: String
+    let onAdd: () -> Void
+    let onDelete: (ClassificationRuleConfiguration) -> Void
+
+    var body: some View {
+        ImportPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Classification rules")
+                            .font(.headline)
+
+                        Spacer()
+
+                        Text("\(applicableRuleCount) applicable")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("Match statement descriptions and replace the fallback account or memo before previewing.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("Description contains, e.g. RIMI", text: $needle)
+                        .textInputAutocapitalization(.words)
+                        .textFieldStyle(.roundedBorder)
+
+                    Picker("Set counterparty", selection: $selectedCounterpartyAccountID) {
+                        Text("Keep fallback account").tag(AccountID?.none)
+                        ForEach(counterpartyAccounts, id: \.id) { account in
+                            Text("\(account.name) · \(account.kind.displayName)").tag(Optional(account.id))
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    TextField("Clean memo, optional", text: $cleanedMemo)
+                        .textInputAutocapitalization(.words)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button {
+                        onAdd()
+                    } label: {
+                        Label("Add rule", systemImage: "plus.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canAddRule)
+                }
+
+                if rules.isEmpty {
+                    Text("No rules yet. Imported rows will use the selected fallback counterparty until a rule matches.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(rules) { rule in
+                            ImportClassificationRuleCard(
+                                rule: rule,
+                                targetSummary: targetSummary(for: rule),
+                                onDelete: { onDelete(rule) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var canAddRule: Bool {
+        !needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && (selectedCounterpartyAccountID != nil || !cleanedMemo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private func targetSummary(for rule: ClassificationRuleConfiguration) -> String {
+        var parts: [String] = []
+
+        if let accountID = rule.counterpartyAccountID,
+           let account = accounts[accountID] {
+            parts.append(account.name)
+        } else if rule.counterpartyAccountID != nil {
+            parts.append("Unknown account")
+        }
+
+        if let memo = rule.cleanedMemo {
+            parts.append("Memo: \(memo)")
+        }
+
+        return parts.isEmpty ? "No active target" : parts.joined(separator: " · ")
+    }
+}
+
+private struct ImportClassificationRuleCard: View {
+    let rule: ClassificationRuleConfiguration
+    let targetSummary: String
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: rule.isEnabled ? "wand.and.stars" : "wand.and.stars.inverse")
+                .foregroundStyle(rule.isEnabled ? .purple : .secondary)
+                .frame(width: 26)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Contains “\(rule.needle)”")
+                    .font(.subheadline.bold())
+                Text(targetSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete rule", systemImage: "trash")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(12)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -858,4 +1075,5 @@ private struct ImportPreviewConfiguration: Equatable, Sendable {
     let csvText: String
     let statementAccountID: AccountID
     let counterpartyAccountID: AccountID
+    let classificationRules: [ClassificationRuleConfiguration]
 }
