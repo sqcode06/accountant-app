@@ -151,11 +151,13 @@ struct ReconciliationView: View {
     }
 
     private func ensureDefaultSelection() {
-        if let selectedAccountID, appState.ledger.accounts[selectedAccountID] != nil {
+        if let selectedAccountID,
+           reconcilableAccounts.contains(where: { $0.id == selectedAccountID }) {
             return
         }
 
         selectedAccountID = reconcilableAccounts.first?.id
+        resetResult()
     }
 
     private func resetResult() {
@@ -166,11 +168,16 @@ struct ReconciliationView: View {
     private func parseAmount(_ text: String) -> Decimal? {
         let normalized = text
             .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\u{00A0}", with: "")
             .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: ",", with: ".")
 
         guard !normalized.isEmpty else { return nil }
-        return Decimal(string: normalized)
+
+        return Decimal(
+            string: normalized,
+            locale: Locale(identifier: "en_US_POSIX")
+        )
     }
 
     private func accountPickerTitle(_ account: Account) -> String {
