@@ -166,18 +166,51 @@ struct ReconciliationView: View {
     }
 
     private func parseAmount(_ text: String) -> Decimal? {
-        let normalized = text
+        let compact = text
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\u{00A0}", with: "")
             .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: ",", with: ".")
+            .replacingOccurrences(of: "'", with: "")
 
-        guard !normalized.isEmpty else { return nil }
+        guard !compact.isEmpty else { return nil }
 
+        let normalized = normalizeDecimalText(compact)
         return Decimal(
             string: normalized,
             locale: Locale(identifier: "en_US_POSIX")
         )
+    }
+
+    private func normalizeDecimalText(_ text: String) -> String {
+        let dotIndex = text.lastIndex(of: ".")
+        let commaIndex = text.lastIndex(of: ",")
+
+        if let dotIndex, let commaIndex {
+            let decimalSeparator: Character = dotIndex > commaIndex ? "." : ","
+            let groupingSeparator: Character = decimalSeparator == "." ? "," : "."
+
+            return text
+                .filter { $0 != groupingSeparator }
+                .replacingOccurrences(of: String(decimalSeparator), with: ".")
+        }
+
+        if text.filter({ $0 == "," }).count > 1 {
+            return text.replacingOccurrences(of: ",", with: "")
+        }
+
+        if text.filter({ $0 == "." }).count > 1 {
+            return text.replacingOccurrences(of: ".", with: "")
+        }
+
+        if let separator = dotIndex ?? commaIndex {
+            let fractionLength = text.distance(from: text.index(after: separator), to: text.endIndex)
+
+            if fractionLength == 3 {
+                return text.replacingOccurrences(of: String(text[separator]), with: "")
+            }
+        }
+
+        return text.replacingOccurrences(of: ",", with: ".")
     }
 
     private func accountPickerTitle(_ account: Account) -> String {
