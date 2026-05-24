@@ -15,6 +15,9 @@ struct ImportPreviewScreen: View {
     @State private var isApplying = false
     @State private var isBuildingPreview = false
     @State private var previewConfiguration: ImportPreviewConfiguration?
+    @State private var newRuleNeedle = ""
+    @State private var newRuleMemo = ""
+    @State private var newRuleCounterpartyAccountID: AccountID?
 
     var body: some View {
         ScrollView {
@@ -54,6 +57,17 @@ struct ImportPreviewScreen: View {
                         .pickerStyle(.menu)
                     }
                 }
+
+                ImportClassificationRulesPanel(
+                    rules: appState.classificationRules,
+                    accounts: appState.ledger.accounts,
+                    counterpartyAccounts: counterpartyAccounts,
+                    selectedCounterpartyAccountID: $newRuleCounterpartyAccountID,
+                    needle: $newRuleNeedle,
+                    cleanedMemo: $newRuleMemo,
+                    onAdd: addClassificationRule,
+                    onDelete: deleteClassificationRule
+                )
 
                 ImportPanel {
                     VStack(alignment: .leading, spacing: 12) {
@@ -146,6 +160,9 @@ struct ImportPreviewScreen: View {
         .onChange(of: selectedCounterpartyAccountID) { _, _ in
             resetPreview()
         }
+        .onChange(of: appState.classificationRules) { _, _ in
+            resetPreview()
+        }
     }
 
     private var activeAccounts: [Account] {
@@ -186,7 +203,8 @@ struct ImportPreviewScreen: View {
             source: cleanedSource,
             csvText: cleanedCSV,
             statementAccountID: statementAccountID,
-            counterpartyAccountID: counterpartyAccountID
+            counterpartyAccountID: counterpartyAccountID,
+            classificationRules: appState.classificationRules
         )
     }
 
@@ -197,6 +215,10 @@ struct ImportPreviewScreen: View {
 
         if selectedCounterpartyAccountID == nil {
             selectedCounterpartyAccountID = counterpartyAccounts.first?.id
+        }
+
+        if newRuleCounterpartyAccountID == nil {
+            newRuleCounterpartyAccountID = counterpartyAccounts.first?.id
         }
     }
 
@@ -220,6 +242,8 @@ struct ImportPreviewScreen: View {
 
         do {
             let builtPreview = try await Task.detached(priority: .userInitiated) {
+                let classifier = ClassificationRuleConfiguration.makeClassifier(from: configuration.classificationRules)
+
                 let parser = CSVBankLineParser(
                     source: configuration.source,
                     dateFormats: dateFormats
@@ -233,7 +257,7 @@ struct ImportPreviewScreen: View {
                     defaultCounterpartyAccountID: configuration.counterpartyAccountID
                 )
 
-                return pipeline.previewImport(lines: lines, into: ledger)
+                return pipeline.previewImport(lines: lines, into: ledger, classifier: classifier)
             }.value
 
             guard currentPreviewConfiguration == configuration else {
@@ -289,6 +313,29 @@ struct ImportPreviewScreen: View {
         previewConfiguration = nil
         parseErrorMessage = nil
         applyReport = nil
+    }
+
+    private func addClassificationRule() {
+        Task {
+            let success = await appState.createDescriptionContainsRule(
+                needle: newRuleNeedle,
+                counterpartyAccountID: newRuleCounterpartyAccountID,
+                cleanedMemo: newRuleMemo
+            )
+
+            guard success else { return }
+
+            newRuleNeedle = ""
+            newRuleMemo = ""
+            resetPreview()
+        }
+    }
+
+    private func deleteClassificationRule(_ rule: ClassificationRuleConfiguration) {
+        Task {
+            _ = await appState.deleteClassificationRule(id: rule.id)
+            resetPreview()
+        }
     }
 
     private func accountPickerTitle(_ account: Account) -> String {
@@ -358,6 +405,137 @@ private struct ImportMissingAccountsCard: View {
         }
 
         return "Create \(parts.joined(separator: " and ")) in Accounts before previewing imports."
+    }
+}
+
+
+private struct ImportClassificationRulesPanel: View {
+    let rules: [ClassificationRuleConfiguration]
+    let accounts: [AccountID: Account]
+    let counterpartyAccounts: [Account]
+    @Binding var selectedCounterpartyAccountID: AccountID?
+    @Binding var needle: String
+    @Binding var cleanedMemo: String
+    let onAdd: () -> Void
+    let onDelete: (ClassificationRuleConfiguration) -> Void
+
+    var body: some View {
+        ImportPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Classification rules")
+                            .font(.headline)
+
+                        Spacer()
+
+                        Text("\(rules.enabledRuleCount) active")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("Match statement descriptions and replace the fallback account or memo before previewing.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("Description contains, e.g. RIMI", text: $needle)
+                        .textInputAutocapitalization(.words)
+                        .textFieldStyle(.roundedBorder)
+
+                    Picker("Set counterparty", selection: $selectedCounterpartyAccountID) {
+                        Text("Keep fallback account").tag(AccountID?.none)
+                        ForEach(counterpartyAccounts, id: \.id) { account in
+                            Text("\(account.name) · \(account.kind.displayName)").tag(Optional(account.id))
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    TextField("Clean memo, optional", text: $cleanedMemo)
+                        .textInputAutocapitalization(.words)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button {
+                        onAdd()
+                    } label: {
+                        Label("Add rule", systemImage: "plus.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canAddRule)
+                }
+
+                if rules.isEmpty {
+                    Text("No rules yet. Imported rows will use the selected fallback counterparty until a rule matches.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(rules) { rule in
+                            ImportClassificationRuleCard(
+                                rule: rule,
+                                targetSummary: targetSummary(for: rule),
+                                onDelete: { onDelete(rule) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var canAddRule: Bool {
+        !needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && (selectedCounterpartyAccountID != nil || !cleanedMemo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private func targetSummary(for rule: ClassificationRuleConfiguration) -> String {
+        var parts: [String] = []
+
+        if let accountID = rule.counterpartyAccountID,
+           let account = accounts[accountID] {
+            parts.append(account.name)
+        } else if rule.counterpartyAccountID != nil {
+            parts.append("Unknown account")
+        }
+
+        if let memo = rule.cleanedMemo {
+            parts.append("Memo: \(memo)")
+        }
+
+        return parts.isEmpty ? "No active target" : parts.joined(separator: " · ")
+    }
+}
+
+private struct ImportClassificationRuleCard: View {
+    let rule: ClassificationRuleConfiguration
+    let targetSummary: String
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: rule.isEnabled ? "wand.and.stars" : "wand.and.stars.inverse")
+                .foregroundStyle(rule.isEnabled ? .purple : .secondary)
+                .frame(width: 26)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Contains “\(rule.needle)”")
+                    .font(.subheadline.bold())
+                Text(targetSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(12)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -858,4 +1036,5 @@ private struct ImportPreviewConfiguration: Equatable, Sendable {
     let csvText: String
     let statementAccountID: AccountID
     let counterpartyAccountID: AccountID
+    let classificationRules: [ClassificationRuleConfiguration]
 }

@@ -5,15 +5,22 @@ import AccountantCore
 final class AppState: ObservableObject {
     @Published private(set) var ledger: Ledger
     @Published private(set) var isLoading: Bool
+    @Published private(set) var classificationRules: [ClassificationRuleConfiguration]
     @Published var lastError: AppError?
 
     private let repository: LedgerRepository
+    private let classificationRuleRepository: ClassificationRuleRepository
     private var didAttemptInitialLoad = false
 
-    init(repository: LedgerRepository) {
+    init(
+        repository: LedgerRepository,
+        classificationRuleRepository: ClassificationRuleRepository = EmptyClassificationRuleRepository()
+    ) {
         self.repository = repository
+        self.classificationRuleRepository = classificationRuleRepository
         self.ledger = Ledger()
         self.isLoading = false
+        self.classificationRules = []
         self.lastError = nil
     }
 
@@ -25,10 +32,14 @@ final class AppState: ObservableObject {
         defer { isLoading = false }
 
         do {
-            ledger = try await repository.loadOrCreate()
+            let loadedLedger = try await repository.loadOrCreate()
+            let loadedRules = try await classificationRuleRepository.loadOrCreate()
+            ledger = loadedLedger
+            classificationRules = loadedRules
             lastError = nil
         } catch {
             ledger = Ledger()
+            classificationRules = []
             lastError = AppError(error)
         }
     }
@@ -234,6 +245,68 @@ final class AppState: ObservableObject {
         }
     }
 
+    @discardableResult
+    func createDescriptionContainsRule(
+        needle: String,
+        counterpartyAccountID: AccountID?,
+        cleanedMemo: String?
+    ) async -> Bool {
+        let cleanedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedMemo = Self.cleanedOptionalText(cleanedMemo)
+
+        guard !cleanedNeedle.isEmpty else {
+            lastError = AppError(message: "Rule match text cannot be empty.")
+            return false
+        }
+
+        guard counterpartyAccountID != nil || normalizedMemo != nil else {
+            lastError = AppError(message: "Rule must change an account, memo, or both.")
+            return false
+        }
+
+        let rule = ClassificationRuleConfiguration(
+            needle: cleanedNeedle,
+            counterpartyAccountID: counterpartyAccountID,
+            cleanedMemo: normalizedMemo
+        )
+
+        var updatedRules = classificationRules
+        updatedRules.append(rule)
+        return await saveClassificationRules(updatedRules)
+    }
+
+    @discardableResult
+    func deleteClassificationRule(id: UUID) async -> Bool {
+        let updatedRules = classificationRules.filter { $0.id != id }
+        guard updatedRules.count != classificationRules.count else { return true }
+        return await saveClassificationRules(updatedRules)
+    }
+
+    func transactionClassifier() -> TransactionClassifier {
+        let availableRules = classificationRules.filter { rule in
+            guard let accountID = rule.counterpartyAccountID else {
+                return true
+            }
+
+            return ledger.accounts[accountID]?.status == .active
+        }
+
+        return ClassificationRuleConfiguration.makeClassifier(from: availableRules)
+    }
+
+    @discardableResult
+    private func saveClassificationRules(_ updatedRules: [ClassificationRuleConfiguration]) async -> Bool {
+        do {
+            try await classificationRuleRepository.save(updatedRules)
+            classificationRules = updatedRules
+            lastError = nil
+            return true
+        } catch {
+            lastError = AppError(error)
+            return false
+        }
+    }
+
     private func createExpense(
         paidFrom: AccountID,
         category: AccountID,
@@ -308,6 +381,11 @@ final class AppState: ObservableObject {
 
     private func cleanedMemo(_ memo: String?) -> String? {
         let cleaned = memo?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private static func cleanedOptionalText(_ text: String?) -> String? {
+        let cleaned = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return cleaned.isEmpty ? nil : cleaned
     }
 }
