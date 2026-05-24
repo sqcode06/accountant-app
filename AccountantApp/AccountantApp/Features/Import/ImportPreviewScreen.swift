@@ -258,10 +258,6 @@ struct ImportPreviewScreen: View {
         if selectedCounterpartyAccountID == nil {
             selectedCounterpartyAccountID = counterpartyAccounts.first?.id
         }
-
-        if newRuleCounterpartyAccountID == nil {
-            newRuleCounterpartyAccountID = counterpartyAccounts.first?.id
-        }
     }
 
     @MainActor
