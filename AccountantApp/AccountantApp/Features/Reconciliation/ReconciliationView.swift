@@ -141,7 +141,7 @@ struct ReconciliationView: View {
                 accountID: selectedAccountID,
                 statementBalance: statementBalance,
                 currency: displayCurrency,
-                asOf: asOfDate
+                asOf: endOfDay(for: asOfDate)
             )
             errorMessage = nil
         } catch {
@@ -215,6 +215,16 @@ struct ReconciliationView: View {
 
     private func accountPickerTitle(_ account: Account) -> String {
         "\(account.name) · \(account.kind.displayName)"
+    }
+    
+    private func endOfDay(for date: Date) -> Date {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+
+        return calendar.date(
+            byAdding: DateComponents(day: 1, second: -1),
+            to: startOfDay
+        ) ?? date
     }
 }
 
