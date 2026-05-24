@@ -228,6 +228,98 @@ struct AccountantAppTests {
         #expect(appState.lastError?.message == "Amount must be greater than zero.")
     }
 
+
+    @MainActor
+    @Test func applyImportPreviewInsertsProposedDraftsAndSaves() async throws {
+        let fixture = TransactionFixture()
+        let repository = InMemoryLedgerRepository(ledger: fixture.ledger)
+        let appState = AppState(repository: repository)
+
+        await appState.loadIfNeeded()
+
+        let pipeline = ImportPipeline(
+            source: "FixtureBank",
+            statementAccountID: fixture.bank.id,
+            defaultCounterpartyAccountID: fixture.groceries.id
+        )
+        let line = BankLine(
+            date: fixture.date,
+            amount: Decimal(-42),
+            currency: fixture.currency,
+            description: "Rimi",
+            externalID: "CARD-1"
+        )
+        let preview = pipeline.previewImport(lines: [line], into: appState.ledger)
+
+        let report = await appState.applyImportPreview(preview, using: pipeline)
+        let transaction = onlyTransaction(in: appState)
+
+        #expect(report?.insertedTransactions == 1)
+        #expect(report?.skippedOutcomes == 0)
+        #expect(transaction?.state == .draft)
+        #expect(transaction?.origin == TransactionOrigin(source: "FixtureBank", externalID: "CARD-1"))
+        #expect(await repository.savedLedgers.count == 1)
+        #expect(appState.lastError == nil)
+    }
+
+    @MainActor
+    @Test func failedImportApplyDoesNotPartiallyMutateVisibleLedger() async throws {
+        let fixture = TransactionFixture()
+        let repository = InMemoryLedgerRepository(ledger: fixture.ledger)
+        let appState = AppState(repository: repository)
+
+        await appState.loadIfNeeded()
+
+        let pipeline = ImportPipeline(
+            source: "FixtureBank",
+            statementAccountID: fixture.bank.id,
+            defaultCounterpartyAccountID: fixture.groceries.id
+        )
+        let firstLine = BankLine(
+            date: fixture.date,
+            amount: Decimal(-12),
+            currency: fixture.currency,
+            description: "Coffee",
+            externalID: "CARD-1"
+        )
+        let secondLine = BankLine(
+            date: fixture.date,
+            amount: Decimal(-9),
+            currency: fixture.currency,
+            description: "Broken",
+            externalID: "CARD-2"
+        )
+        let validDraft = try Transaction.draftExpense(
+            paidFrom: fixture.bank.id,
+            category: fixture.groceries.id,
+            amount: fixture.money(12),
+            date: fixture.date,
+            memo: "Coffee"
+        )
+        let invalidDraft = Transaction(
+            date: fixture.date,
+            memo: "Broken",
+            postings: [
+                Posting(accountID: fixture.bank.id, money: Money(Decimal(-9), currency: fixture.currency)),
+                Posting(accountID: fixture.groceries.id, money: Money(Decimal(8), currency: fixture.currency))
+            ]
+        )
+        let preview = ImportPreview(
+            source: "FixtureBank",
+            outcomes: [
+                .proposed(line: firstLine, draft: validDraft, warnings: []),
+                .proposed(line: secondLine, draft: invalidDraft, warnings: [])
+            ]
+        )
+
+        let report = await appState.applyImportPreview(preview, using: pipeline)
+
+        #expect(report == nil)
+        #expect(appState.ledger.allTransactionsSorted(includeDrafts: true).isEmpty)
+        #expect(await repository.savedLedgers.isEmpty)
+        #expect(appState.lastError?.message == "This transaction is not balanced.")
+    }
+
     @MainActor
     @Test func failedSaveDoesNotExposeUnsavedTransaction() async throws {
         let fixture = TransactionFixture()

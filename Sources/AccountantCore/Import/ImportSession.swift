@@ -141,6 +141,7 @@ public extension ImportPipeline {
     ) throws -> ImportApplyReport {
 
         var working = ledger
+        var existingOrigins = Set(working.transactions.compactMap(\.origin))
 
         var insertedTransactions = 0
         var skippedOutcomes = 0
@@ -149,7 +150,17 @@ public extension ImportPipeline {
             switch outcome {
 
             case .proposed(_, let draft, _):
+                if let origin = draft.origin, existingOrigins.contains(origin) {
+                    skippedOutcomes += 1
+                    continue
+                }
+
                 try working.addTransaction(draft)
+
+                if let origin = draft.origin {
+                    existingOrigins.insert(origin)
+                }
+
                 insertedTransactions += 1
 
             case .skippedDuplicate, .failed:
