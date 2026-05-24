@@ -291,20 +291,33 @@ final class AppState: ObservableObject {
     @discardableResult
     func deleteClassificationRule(id: UUID) async -> Bool {
         let updatedRules = classificationRules.filter { $0.id != id }
-        guard updatedRules.count != classificationRules.count else { return true }
+        guard updatedRules.count != classificationRules.count else {
+            lastError = nil
+            return true
+        }
         return await saveClassificationRules(updatedRules)
     }
 
+    var applicableClassificationRuleCount: Int {
+        applicableClassificationRules.count
+    }
+
     func transactionClassifier() -> TransactionClassifier {
-        let availableRules = classificationRules.filter { rule in
+        ClassificationRuleConfiguration.makeClassifier(from: applicableClassificationRules)
+    }
+
+    private var applicableClassificationRules: [ClassificationRuleConfiguration] {
+        classificationRules.filter { rule in
+            guard rule.makeRule() != nil else {
+                return false
+            }
+
             guard let accountID = rule.counterpartyAccountID else {
                 return true
             }
 
             return ledger.accounts[accountID]?.status == .active
         }
-
-        return ClassificationRuleConfiguration.makeClassifier(from: availableRules)
     }
 
     @discardableResult
