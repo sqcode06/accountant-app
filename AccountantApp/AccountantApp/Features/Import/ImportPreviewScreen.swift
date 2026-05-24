@@ -235,6 +235,7 @@ struct ImportPreviewScreen: View {
         }
 
         let ledger = appState.ledger
+        let classifier = appState.transactionClassifier()
         let dateFormats = ["yyyy-MM-dd", "dd.MM.yyyy"]
 
         isBuildingPreview = true
@@ -242,8 +243,6 @@ struct ImportPreviewScreen: View {
 
         do {
             let builtPreview = try await Task.detached(priority: .userInitiated) {
-                let classifier = ClassificationRuleConfiguration.makeClassifier(from: configuration.classificationRules)
-
                 let parser = CSVBankLineParser(
                     source: configuration.source,
                     dateFormats: dateFormats

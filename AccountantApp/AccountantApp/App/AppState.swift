@@ -31,16 +31,29 @@ final class AppState: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        var loadingError: Error?
+
         do {
-            let loadedLedger = try await repository.loadOrCreate()
-            let loadedRules = try await classificationRuleRepository.loadOrCreate()
-            ledger = loadedLedger
-            classificationRules = loadedRules
-            lastError = nil
+            ledger = try await repository.loadOrCreate()
         } catch {
             ledger = Ledger()
+            loadingError = error
+        }
+
+        do {
+            classificationRules = try await classificationRuleRepository.loadOrCreate()
+        } catch {
             classificationRules = []
-            lastError = AppError(error)
+
+            if loadingError == nil {
+                loadingError = error
+            }
+        }
+
+        if let loadingError {
+            lastError = AppError(loadingError)
+        } else {
+            lastError = nil
         }
     }
 
@@ -380,8 +393,7 @@ final class AppState: ObservableObject {
     }
 
     private func cleanedMemo(_ memo: String?) -> String? {
-        let cleaned = memo?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return cleaned.isEmpty ? nil : cleaned
+        Self.cleanedOptionalText(memo)
     }
 
     private static func cleanedOptionalText(_ text: String?) -> String? {
