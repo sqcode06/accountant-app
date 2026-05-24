@@ -28,6 +28,35 @@ struct ClassificationRuleConfiguration: Identifiable, Codable, Equatable, Sendab
         self.cleanedMemo = normalizedMemo
         self.isEnabled = isEnabled
     }
+    
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case needle
+        case counterpartyAccountID
+        case cleanedMemo
+        case isEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        let id = try container.decode(UUID.self, forKey: .id)
+        let name = try container.decodeIfPresent(String.self, forKey: .name)
+        let needle = try container.decode(String.self, forKey: .needle)
+        let counterpartyAccountID = try container.decodeIfPresent(AccountID.self, forKey: .counterpartyAccountID)
+        let cleanedMemo = try container.decodeIfPresent(String.self, forKey: .cleanedMemo)
+        let isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+
+        self.init(
+            id: id,
+            name: name,
+            needle: needle,
+            counterpartyAccountID: counterpartyAccountID,
+            cleanedMemo: cleanedMemo,
+            isEnabled: isEnabled
+        )
+    }
 
     var displayName: String {
         name.isEmpty ? needle : name

@@ -143,6 +143,28 @@ struct ClassificationRuleConfigurationTests {
 
         try? FileManager.default.removeItem(at: fileURL)
     }
+    
+    @Test func classificationRuleConfigurationDecodingNormalizesPersistedText() throws {
+        let id = UUID()
+        let json = """
+        {
+          "id": "\(id.uuidString)",
+          "name": "   ",
+          "needle": "  RIMI  ",
+          "cleanedMemo": "  Groceries  ",
+          "isEnabled": true
+        }
+        """
+
+        let data = try #require(json.data(using: .utf8))
+        let rule = try JSONDecoder().decode(ClassificationRuleConfiguration.self, from: data)
+
+        #expect(rule.id == id)
+        #expect(rule.name == "Groceries")
+        #expect(rule.needle == "RIMI")
+        #expect(rule.cleanedMemo == "Groceries")
+        #expect(rule.isEnabled)
+    }
 }
 
 private actor TestLedgerRepository: LedgerRepository {
