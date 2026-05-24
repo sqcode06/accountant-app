@@ -27,6 +27,13 @@ struct ContentView: View {
                 Label("Import", systemImage: "tray.and.arrow.down.fill")
             }
 
+            loadedTab(title: "Reconcile") {
+                ReconciliationView()
+            }
+            .tabItem {
+                Label("Reconcile", systemImage: "checkmark.seal.fill")
+            }
+
             loadedTab(title: "Accounts") {
                 AccountListView()
             }
