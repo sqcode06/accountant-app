@@ -47,6 +47,9 @@ struct AppError: Identifiable {
         case TransactionCreationError.nonPositiveAmount(_):
             self.message = "Amount must be greater than zero."
 
+        case ReconciliationError.unknownAccount(_):
+            self.message = "This account could not be reconciled because it no longer exists."
+
         case ImportError.unknownAccount(_):
             self.message = "An imported transaction references an unknown account."
 
