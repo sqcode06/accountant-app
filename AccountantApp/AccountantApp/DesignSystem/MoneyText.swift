@@ -3,41 +3,41 @@ import AccountantCore
 
 /// The one place money is rendered.
 ///
-/// Previously `MoneyDisplay.string` returned a bare string and every caller
-/// invented its own treatment: `TransactionRowView` had a private `amountPrefix`
-/// and tint, the dashboard had neither, and nothing agreed on when to show a sign.
+/// Owns the sign, the colour, the face and the alignment, so no screen reinvents
+/// them. Figures are always trailing-aligned with tabular spacing: every amount on
+/// a screen shares one right edge, and digits do not shift as values change. That
+/// alignment does more to make the app feel considered than any amount of colour.
 struct MoneyText: View {
 
     enum Role {
-        /// A balance. Negative reads as a deficit; positive reads plain.
+        /// A balance. Negative reads as a deficit; positive reads as plain ink.
         case balance
 
-        /// Money arriving. The only thing that gets green.
+        /// Money arriving. The only thing that gets viridian.
         case inflow
 
-        /// Money leaving.
-        ///
-        /// Deliberately *not* coloured. Spending is the ordinary case in a
-        /// budgeting app, and painting every expense red turns a normal month into
-        /// a wall of alarm. Red is reserved for something actually wrong.
+        /// Money leaving. Deliberately uncoloured — spending is the ordinary case
+        /// in a budgeting app, and painting all of it red is just alarm.
         case outflow
 
-        /// No semantic colour at all.
+        /// No semantic colour.
         case plain
     }
 
     let money: Money
     var role: Role = .plain
-    var font: Font = .amountRow
+    var font: Font = .figureRow
 
-    /// Forces an explicit `+` on positive values. Useful in statement lines where
+    /// Forces an explicit `+` on positive values, for statement lines where
     /// direction matters more than magnitude.
     var showsPositiveSign: Bool = false
 
     var body: some View {
         Text(formatted)
+            .figureTracking()
             .font(font)
             .foregroundStyle(color)
+            .multilineTextAlignment(.trailing)
             .accessibilityLabel(accessibilityLabel)
     }
 
@@ -54,11 +54,11 @@ struct MoneyText: View {
     private var color: Color {
         switch role {
         case .balance:
-            money.amount < .zero ? Theme.deficit : .primary
+            money.amount < .zero ? Theme.deficit : Theme.ink
         case .inflow:
             Theme.inflow
         case .outflow, .plain:
-            .primary
+            Theme.ink
         }
     }
 
@@ -74,27 +74,80 @@ struct MoneyText: View {
     }
 }
 
-#Preview {
-    VStack(alignment: .trailing, spacing: Metrics.Space.m) {
-        MoneyText(
-            money: Money(Decimal(1234.56), currency: Currency("EUR")),
-            role: .balance,
-            font: .amountHero
-        )
-        MoneyText(
-            money: Money(Decimal(-89.10), currency: Currency("EUR")),
-            role: .balance,
-            font: .amountHero
-        )
-        MoneyText(
-            money: Money(Decimal(42), currency: Currency("EUR")),
-            role: .inflow,
-            showsPositiveSign: true
-        )
-        MoneyText(
-            money: Money(Decimal(-42), currency: Currency("EUR")),
-            role: .outflow
+/// A labelled figure: a small muted label with the amount beneath it.
+struct FigureBlock: View {
+    let label: String
+    let money: Money
+    var role: MoneyText.Role = .balance
+    var font: Font = .figureHero
+    var alignment: HorizontalAlignment = .leading
+
+    var body: some View {
+        VStack(alignment: alignment, spacing: Metrics.Space.xs) {
+            Text(label)
+                .fieldLabel()
+
+            MoneyText(money: money, role: role, font: font)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+        }
+        .frame(
+            maxWidth: .infinity,
+            alignment: alignment == .trailing ? .trailing : .leading
         )
     }
-    .padding()
+}
+
+#Preview {
+    VStack(alignment: .leading, spacing: Metrics.Space.xl) {
+        FigureBlock(
+            label: "Net position",
+            money: Money(Decimal(12_480.55), currency: Currency("EUR"))
+        )
+        .heroCard()
+
+        HStack(spacing: Metrics.Space.l) {
+            FigureBlock(
+                label: "In this month",
+                money: Money(Decimal(2_400), currency: Currency("EUR")),
+                role: .inflow,
+                font: .figurePrimary
+            )
+
+            FigureBlock(
+                label: "Out this month",
+                money: Money(Decimal(1_180.20), currency: Currency("EUR")),
+                role: .outflow,
+                font: .figurePrimary
+            )
+        }
+        .card()
+
+        VStack(spacing: Metrics.Space.m) {
+            HStack {
+                Text("Bolt Food").font(.uiRowTitle)
+                Spacer()
+                MoneyText(
+                    money: Money(Decimal(-8.40), currency: Currency("EUR")),
+                    role: .outflow
+                )
+            }
+
+            Hairline()
+
+            HStack {
+                Text("Salary").font(.uiRowTitle)
+                Spacer()
+                MoneyText(
+                    money: Money(Decimal(2_400), currency: Currency("EUR")),
+                    role: .inflow,
+                    showsPositiveSign: true
+                )
+            }
+        }
+        .card()
+    }
+    .padding(Metrics.Space.l)
+    .frame(maxHeight: .infinity)
+    .background(Theme.canvas)
 }

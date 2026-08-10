@@ -157,56 +157,60 @@ private struct BalanceHeader: View {
     let snapshot: AccountDetailSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.Space.m) {
-            HStack(spacing: Metrics.Space.s) {
-                Image(systemName: snapshot.account.symbolName ?? snapshot.account.kind.systemImageName)
-                    .font(.footnote)
-                    .foregroundStyle(Theme.tint(for: snapshot.account.kind.tintCase))
-                    .frame(width: 26, height: 26)
-                    .background(
-                        Theme.tint(for: snapshot.account.kind.tintCase).opacity(0.14),
-                        in: Circle()
-                    )
-
+        VStack(alignment: .leading, spacing: Metrics.Space.l) {
+            HStack {
                 Text(snapshot.account.kind.displayName)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .fieldLabel()
 
                 Spacer()
 
                 Text(snapshot.currency.code)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .fieldLabel(Theme.accent)
             }
 
-            MoneyText(
-                money: snapshot.balance,
-                role: .balance,
-                font: .amountHero
-            )
-            .minimumScaleFactor(0.6)
-            .lineLimit(1)
+            MoneyText(money: snapshot.balance, role: .balance, font: .figureHero)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
 
+            // Only worth splitting out when the two figures actually differ.
             if snapshot.hasPending {
-                // Only worth saying when the two numbers actually differ.
-                HStack(spacing: Metrics.Space.xs) {
-                    Text("Cleared")
-                        .foregroundStyle(.secondary)
+                VStack(spacing: Metrics.Space.s) {
+                    Hairline()
 
-                    MoneyText(money: snapshot.clearedBalance, font: .amountSecondary)
+                    HStack(alignment: .top) {
+                        splitColumn(
+                            label: "Cleared",
+                            money: snapshot.clearedBalance,
+                            tint: Theme.cleared
+                        )
 
-                    Text("·")
-                        .foregroundStyle(.secondary)
+                        Spacer()
 
-                    Text("Pending")
-                        .foregroundStyle(Theme.pending)
-
-                    MoneyText(money: snapshot.pendingBalance, font: .amountSecondary)
+                        splitColumn(
+                            label: "Pending",
+                            money: snapshot.pendingBalance,
+                            tint: Theme.pending,
+                            alignment: .trailing
+                        )
+                    }
                 }
-                .font(.caption)
             }
         }
-        .card()
+        .card(padding: Metrics.Space.xl)
+    }
+
+    private func splitColumn(
+        label: String,
+        money: Money,
+        tint: Color,
+        alignment: HorizontalAlignment = .leading
+    ) -> some View {
+        VStack(alignment: alignment, spacing: Metrics.Space.xs) {
+            Text(label)
+                .fieldLabel(tint)
+
+            MoneyText(money: money, font: .figureTrailing)
+        }
     }
 }
 
@@ -219,7 +223,8 @@ private struct EntryRow: View {
         HStack(alignment: .firstTextBaseline, spacing: Metrics.Space.m) {
             VStack(alignment: .leading, spacing: Metrics.Space.xs) {
                 Text(entry.title)
-                    .font(.body)
+                    .font(.uiBody)
+                    .foregroundStyle(Theme.ink)
                     .lineLimit(1)
 
                 HStack(spacing: Metrics.Space.xs) {
@@ -236,8 +241,8 @@ private struct EntryRow: View {
                         Text("Draft")
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.uiCaption)
+                .foregroundStyle(Theme.inkMuted)
             }
 
             Spacer(minLength: Metrics.Space.s)
@@ -249,19 +254,18 @@ private struct EntryRow: View {
                     showsPositiveSign: true
                 )
 
-                HStack(spacing: 3) {
-                    if entry.isCleared {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(Theme.cleared)
-                    } else {
+                // Running balance in the trailing column, with a pending marker.
+                // Uncleared entries are the ones that need attention, so only they
+                // carry a mark — a checkmark on every settled row is just clutter.
+                HStack(spacing: Metrics.Space.xs) {
+                    if !entry.isCleared {
                         Circle()
                             .fill(Theme.pending)
                             .frame(width: 5, height: 5)
                     }
 
-                    MoneyText(money: entry.runningBalance, font: .amountSecondary)
-                        .foregroundStyle(.secondary)
+                    MoneyText(money: entry.runningBalance, font: .figureTrailing)
+                        .foregroundStyle(Theme.inkFaint)
                 }
             }
         }
@@ -272,20 +276,6 @@ private struct EntryRow: View {
 }
 
 // MARK: - Kind bridging
-
-private extension AccountKind {
-    /// Maps the core enum onto the theme's tint cases without the theme importing core.
-    var tintCase: AccountKindTint {
-        switch self {
-        case .asset: .asset
-        case .liability: .liability
-        case .income: .income
-        case .expense: .expense
-        case .equity: .equity
-        case .clearing: .clearing
-        }
-    }
-}
 
 // MARK: - Preview
 
