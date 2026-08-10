@@ -47,7 +47,7 @@ public struct Ledger: Sendable {
         }
 
         try tx.validate()
-        try ensureAccountsExistAndAreActive(for: tx)
+        try ensurePostingsAreAcceptable(for: tx)
 
         transactions.append(tx)
     }
@@ -66,7 +66,7 @@ public struct Ledger: Sendable {
         tx.touch(now: now)
 
         try tx.validate()
-        try ensureAccountsExistAndAreActive(for: tx)
+        try ensurePostingsAreAcceptable(for: tx)
 
         transactions[idx] = tx
     }
@@ -78,7 +78,7 @@ public struct Ledger: Sendable {
         guard tx.state == .draft else { return } // idempotent
 
         try tx.validate()
-        try ensureAccountsExistAndAreActive(for: tx)
+        try ensurePostingsAreAcceptable(for: tx)
         tx.finalize(now: now)
         transactions[idx] = tx
     }
@@ -131,7 +131,10 @@ public struct Ledger: Sendable {
         }
     }
 
-    private func ensureAccountsExistAndAreActive(for tx: Transaction) throws {
+    /// Checks every posting against the account it targets: the account must exist,
+    /// be active, and — if it declares a currency — be denominated in the currency
+    /// the posting uses.
+    private func ensurePostingsAreAcceptable(for tx: Transaction) throws {
         for p in tx.postings {
             guard let account = accounts[p.accountID] else {
                 throw LedgerError.unknownAccount(p.accountID)
@@ -139,6 +142,15 @@ public struct Ledger: Sendable {
 
             guard account.status == .active else {
                 throw LedgerError.accountArchived(p.accountID)
+            }
+
+            // An account with no declared currency accepts any currency.
+            if let declared = account.currency, declared != p.money.currency {
+                throw LedgerError.accountCurrencyMismatch(
+                    p.accountID,
+                    expected: declared,
+                    actual: p.money.currency
+                )
             }
         }
     }

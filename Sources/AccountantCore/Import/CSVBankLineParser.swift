@@ -1,8 +1,59 @@
 import Foundation
 
+/// One row that could not be parsed, kept alongside the rows that could.
+public struct BankLineRowError: Error, Equatable, Sendable {
+    /// 1-based row number in the source text, matching what a spreadsheet shows.
+    public let row: Int
+    public let error: BankLineParseError
+
+    public init(row: Int, error: BankLineParseError) {
+        self.row = row
+        self.error = error
+    }
+}
+
+/// The outcome of parsing a statement: the rows that parsed, and the ones that did not.
+///
+/// Statements are dirty in practice — one odd date in two hundred rows is normal.
+/// Aborting the whole batch for it means the user gets nothing and no way forward,
+/// so failures are reported per row and the good rows still come through.
+public struct BankLineParseResult: Equatable, Sendable {
+    public let lines: [BankLine]
+    public let rowErrors: [BankLineRowError]
+
+    public init(lines: [BankLine], rowErrors: [BankLineRowError]) {
+        self.lines = lines
+        self.rowErrors = rowErrors
+    }
+
+    public var hasRowErrors: Bool { !rowErrors.isEmpty }
+}
+
 public protocol BankLineParser: Sendable {
     var source: String { get }
-    func parse(_ text: String) throws -> [BankLine]
+
+    /// Parses every row, collecting per-row failures instead of aborting on the first.
+    ///
+    /// Still throws for problems that make the whole input unusable — empty text,
+    /// a missing header, an absent required column, or CSV that cannot be tokenised.
+    /// Those are not recoverable per row.
+    func parseLines(_ text: String) throws -> BankLineParseResult
+}
+
+public extension BankLineParser {
+    /// Strict parse: throws on the first bad row.
+    ///
+    /// Kept for callers that genuinely want all-or-nothing. Import should prefer
+    /// `parseLines` so a single malformed row does not discard the batch.
+    func parse(_ text: String) throws -> [BankLine] {
+        let result = try parseLines(text)
+
+        if let first = result.rowErrors.first {
+            throw first.error
+        }
+
+        return result.lines
+    }
 }
 
 public enum BankLineParseError: Error, Equatable, Sendable {
@@ -57,7 +108,7 @@ public struct CSVBankLineParser: BankLineParser {
         self.dateFormats = dateFormats
     }
 
-    public func parse(_ text: String) throws -> [BankLine] {
+    public func parseLines(_ text: String) throws -> BankLineParseResult {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BankLineParseError.emptyInput
         }
@@ -79,38 +130,71 @@ public struct CSVBankLineParser: BankLineParser {
         let externalIDColumn = columns.externalID.flatMap { headerIndex[normalizedHeader($0)] }
         let dateParsers = makeDateParsers()
 
-        return try rows.dropFirst().map { row in
-            guard row.fields.count == header.fields.count else {
-                throw BankLineParseError.rowColumnCountMismatch(
-                    row: row.rowNumber,
-                    expected: header.fields.count,
-                    actual: row.fields.count
+        var lines: [BankLine] = []
+        var rowErrors: [BankLineRowError] = []
+
+        for row in rows.dropFirst() {
+            do {
+                lines.append(
+                    try parseRow(
+                        row,
+                        headerFieldCount: header.fields.count,
+                        dateColumn: dateColumn,
+                        amountColumn: amountColumn,
+                        currencyColumn: currencyColumn,
+                        descriptionColumn: descriptionColumn,
+                        externalIDColumn: externalIDColumn,
+                        dateParsers: dateParsers
+                    )
                 )
+            } catch let error as BankLineParseError {
+                rowErrors.append(BankLineRowError(row: row.rowNumber, error: error))
             }
+        }
 
-            let dateText = try requiredValue(in: row, column: dateColumn, name: columns.date)
-            let amountText = try requiredValue(in: row, column: amountColumn, name: columns.amount)
-            let currencyText = try requiredValue(in: row, column: currencyColumn, name: columns.currency)
-            let descriptionText = try requiredValue(in: row, column: descriptionColumn, name: columns.description)
-            let externalIDText = externalIDColumn.flatMap { optionalValue(in: row, column: $0) }
+        return BankLineParseResult(lines: lines, rowErrors: rowErrors)
+    }
 
-            let date = try parseDate(
-                dateText,
+    private func parseRow(
+        _ row: ParsedCSVRow,
+        headerFieldCount: Int,
+        dateColumn: Int,
+        amountColumn: Int,
+        currencyColumn: Int,
+        descriptionColumn: Int,
+        externalIDColumn: Int?,
+        dateParsers: [(format: String, formatter: DateFormatter)]
+    ) throws -> BankLine {
+        guard row.fields.count == headerFieldCount else {
+            throw BankLineParseError.rowColumnCountMismatch(
                 row: row.rowNumber,
-                column: columns.date,
-                parsers: dateParsers
-            )
-            let amount = try parseAmount(amountText, row: row.rowNumber, column: columns.amount)
-            let currency = try parseCurrency(currencyText, row: row.rowNumber, column: columns.currency)
-
-            return BankLine(
-                date: date,
-                amount: amount,
-                currency: currency,
-                description: descriptionText,
-                externalID: externalIDText
+                expected: headerFieldCount,
+                actual: row.fields.count
             )
         }
+
+        let dateText = try requiredValue(in: row, column: dateColumn, name: columns.date)
+        let amountText = try requiredValue(in: row, column: amountColumn, name: columns.amount)
+        let currencyText = try requiredValue(in: row, column: currencyColumn, name: columns.currency)
+        let descriptionText = try requiredValue(in: row, column: descriptionColumn, name: columns.description)
+        let externalIDText = externalIDColumn.flatMap { optionalValue(in: row, column: $0) }
+
+        let date = try parseDate(
+            dateText,
+            row: row.rowNumber,
+            column: columns.date,
+            parsers: dateParsers
+        )
+        let amount = try parseAmount(amountText, row: row.rowNumber, column: columns.amount)
+        let currency = try parseCurrency(currencyText, row: row.rowNumber, column: columns.currency)
+
+        return BankLine(
+            date: date,
+            amount: amount,
+            currency: currency,
+            description: descriptionText,
+            externalID: externalIDText
+        )
     }
 
     private func requiredColumn(_ name: String, in headerIndex: [String: Int]) throws -> Int {

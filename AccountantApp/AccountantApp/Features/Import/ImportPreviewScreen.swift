@@ -1009,6 +1009,8 @@ private enum ImportPreviewFormatting {
             return "Duplicate external ID in this file: \(origin.externalID)."
         case .classificationFailed(let error):
             return classificationErrorMessage(error)
+        case .currencyMismatch(_, let expected, let actual):
+            return "Line is in \(actual.code) but the account holds \(expected.code)."
         }
     }
 

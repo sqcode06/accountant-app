@@ -30,20 +30,52 @@ public struct Account: Hashable, Codable, Sendable {
     public var kind: AccountKind
     public var status: AccountStatus
 
+    /// The currency this account is denominated in, if it is denominated at all.
+    ///
+    /// Balance-bearing accounts (assets, liabilities) normally declare one: a
+    /// Swedbank EUR account holds euros and nothing else. When a currency is
+    /// declared, the ledger refuses postings in any other currency. That refusal
+    /// is the point — without it a foreign-currency posting is accepted and then
+    /// silently omitted from every balance query, so the money simply disappears.
+    ///
+    /// Category-style accounts (income, expense, equity, clearing) normally leave
+    /// this `nil`, meaning "accepts any currency". Groceries bought in euros and
+    /// groceries bought in dollars both belong in Groceries.
+    public var currency: Currency?
+
+    /// User-defined display order. `Ledger.accounts` is an unordered dictionary,
+    /// so ordering has to live on the account itself for the app to honour it.
+    public var sortOrder: Int
+
+    /// Optional icon name overriding the one derived from `kind`. The core does
+    /// not interpret this; the app layer resolves it.
+    public var symbolName: String?
+
+    /// Optional semantic colour token. Held as a string so the core stays UI-free.
+    public var colorToken: String?
+
     public init(
         id: AccountID = AccountID(),
         name: String,
         kind: AccountKind = .asset,
-        status: AccountStatus = .active
+        status: AccountStatus = .active,
+        currency: Currency? = nil,
+        sortOrder: Int = 0,
+        symbolName: String? = nil,
+        colorToken: String? = nil
     ) {
         self.id = id
         self.name = name
         self.kind = kind
         self.status = status
+        self.currency = currency
+        self.sortOrder = sortOrder
+        self.symbolName = symbolName
+        self.colorToken = colorToken
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, kind, status
+        case id, name, kind, status, currency, sortOrder, symbolName, colorToken
     }
 
     public init(from decoder: Decoder) throws {
@@ -51,10 +83,12 @@ public struct Account: Hashable, Codable, Sendable {
 
         self.id = try c.decode(AccountID.self, forKey: .id)
         self.name = try c.decode(String.self, forKey: .name)
-
-        // Backward compatibility for ledgers saved before account taxonomy existed.
         self.kind = try c.decodeIfPresent(AccountKind.self, forKey: .kind) ?? .asset
         self.status = try c.decodeIfPresent(AccountStatus.self, forKey: .status) ?? .active
+        self.currency = try c.decodeIfPresent(Currency.self, forKey: .currency)
+        self.sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
+        self.symbolName = try c.decodeIfPresent(String.self, forKey: .symbolName)
+        self.colorToken = try c.decodeIfPresent(String.self, forKey: .colorToken)
     }
 }
 
@@ -62,9 +96,36 @@ public struct Posting: Hashable, Codable, Sendable {
     public let accountID: AccountID
     public let money: Money
 
-    public init(accountID: AccountID, money: Money) {
+    /// Whether the account's external source (usually a bank statement) has
+    /// confirmed this posting.
+    ///
+    /// Deliberately orthogonal to `Transaction.state`. They answer different
+    /// questions and both are worth keeping:
+    ///
+    /// - `state` — *have I confirmed this is correct?* It governs editability.
+    /// - `cleared` — *has the bank seen it?* It governs reconciliation.
+    ///
+    /// A transaction can be finalized but uncleared (you are sure you paid rent;
+    /// the bank has not posted it yet), or cleared but still a draft (it shows on
+    /// the statement; you have not reviewed the categorisation).
+    public var cleared: Bool
+
+    public init(accountID: AccountID, money: Money, cleared: Bool = false) {
         self.accountID = accountID
         self.money = money
+        self.cleared = cleared
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case accountID, money, cleared
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        self.accountID = try c.decode(AccountID.self, forKey: .accountID)
+        self.money = try c.decode(Money.self, forKey: .money)
+        self.cleared = try c.decodeIfPresent(Bool.self, forKey: .cleared) ?? false
     }
 }
 

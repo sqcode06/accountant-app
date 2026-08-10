@@ -73,14 +73,29 @@ public extension Ledger {
         includeDrafts: Bool = false,
         includeArchived: Bool = false
     ) -> [AccountKindBalanceSummary] {
+        accountKindBalanceSummaries(
+            from: accountBalanceSummaries(
+                currency: currency,
+                asOf: date,
+                includeDrafts: includeDrafts,
+                includeArchived: includeArchived
+            ),
+            currency: currency
+        )
+    }
+
+    /// Groups already-computed account summaries by kind.
+    ///
+    /// Callers that need both views — the dashboard does — should compute the
+    /// account summaries once and pass them here, rather than calling the
+    /// convenience overload above and paying for a second full pass.
+    func accountKindBalanceSummaries(
+        from summaries: [AccountBalanceSummary],
+        currency: Currency
+    ) -> [AccountKindBalanceSummary] {
         var grouped: [AccountKind: (amount: Decimal, count: Int)] = [:]
 
-        for summary in accountBalanceSummaries(
-            currency: currency,
-            asOf: date,
-            includeDrafts: includeDrafts,
-            includeArchived: includeArchived
-        ) {
+        for summary in summaries {
             let current = grouped[summary.account.kind] ?? (amount: Decimal.zero, count: 0)
             grouped[summary.account.kind] = (
                 amount: current.amount + summary.balance.amount,
@@ -110,21 +125,50 @@ private extension Ledger {
         includeDrafts: Bool,
         includeArchived: Bool
     ) -> [AccountBalanceSummary] {
-        accounts.values
+        let totals = accountTotals(
+            currency: currency,
+            asOf: date,
+            includeDrafts: includeDrafts
+        )
+
+        return accounts.values
             .filter { includeArchived || $0.status == .active }
             .filter(predicate)
             .sorted(by: accountBalanceSummarySort)
             .map { account in
                 AccountBalanceSummary(
                     account: account,
-                    balance: balance(
-                        of: account.id,
-                        currency: currency,
-                        asOf: date,
-                        includeDrafts: includeDrafts
-                    )
+                    balance: Money(totals[account.id] ?? .zero, currency: currency)
                 )
             }
+    }
+
+    /// Accumulates per-account totals for one currency in a single pass.
+    ///
+    /// This previously called `balance(of:)` once per account, and each of those
+    /// calls walked every transaction in the ledger — O(A·T) work for something
+    /// that is naturally O(T+P). With the dashboard recomputing on every render,
+    /// that cost was paid continuously.
+    ///
+    /// The filtering here must stay in step with
+    /// `balance(of:currency:asOf:includeDrafts:)` in `LedgerQuery`.
+    func accountTotals(
+        currency: Currency,
+        asOf date: Date,
+        includeDrafts: Bool
+    ) -> [AccountID: Decimal] {
+        var totals: [AccountID: Decimal] = [:]
+
+        for tx in transactions {
+            guard includeDrafts || tx.state == .finalized else { continue }
+            guard tx.date <= date else { continue }
+
+            for posting in tx.postings where posting.money.currency == currency {
+                totals[posting.accountID, default: .zero] += posting.money.amount
+            }
+        }
+
+        return totals
     }
 }
 

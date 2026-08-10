@@ -10,6 +10,12 @@ public enum ImportError: Error, Equatable, Sendable {
     case invalidTransaction
     case duplicateExternalIDInBatch(TransactionOrigin)
     case classificationFailed(ClassificationError)
+
+    /// A statement line is denominated in a currency the target account does not hold.
+    ///
+    /// Reported as a per-line failure so the row is visibly rejected in the preview,
+    /// rather than being imported and then silently excluded from every balance.
+    case currencyMismatch(AccountID, expected: Currency, actual: Currency)
 }
 
 public enum ImportLineOutcome: Equatable, Sendable {
@@ -193,6 +199,18 @@ private func firstAccountError(
     for posting in transaction.postings {
         if let error = accountError(for: posting.accountID, in: ledger) {
             return error
+        }
+
+        // An account with no declared currency accepts any currency.
+        if let account = ledger.accounts[posting.accountID],
+           let declared = account.currency,
+           declared != posting.money.currency {
+
+            return .currencyMismatch(
+                posting.accountID,
+                expected: declared,
+                actual: posting.money.currency
+            )
         }
     }
 
