@@ -83,6 +83,42 @@ public struct Ledger: Sendable {
         transactions[idx] = tx
     }
 
+    /// Finalizes several transactions as one unit.
+    ///
+    /// Atomic on purpose. This backs the end-of-day review, where the user
+    /// confirms a batch captured in a hurry: if one of them is no longer valid —
+    /// an account archived since capture, say — the whole confirmation fails and
+    /// nothing is half-committed. A partially confirmed batch is worse than a
+    /// failed one, because there is no way to tell which half went through.
+    ///
+    /// Already-finalized transactions are skipped rather than treated as errors,
+    /// matching `finalizeTransaction`. Returns the number actually finalized.
+    @discardableResult
+    public mutating func finalizeTransactions(
+        ids: [TransactionID],
+        now: Date = Date()
+    ) throws -> Int {
+        var working = self
+        var finalized = 0
+
+        for id in ids {
+            let idx = try working.indexOfTransaction(id)
+
+            guard working.transactions[idx].state == .draft else { continue }
+
+            try working.finalizeTransaction(id: id, now: now)
+            finalized += 1
+        }
+
+        self = working
+        return finalized
+    }
+
+    /// Transactions awaiting review, oldest first.
+    public func draftTransactions() -> [Transaction] {
+        allTransactionsSorted(includeDrafts: true).filter { $0.state == .draft }
+    }
+
     public mutating func deleteDraftTransaction(id: TransactionID) throws {
         let idx = try indexOfTransaction(id)
         let tx = transactions[idx]
