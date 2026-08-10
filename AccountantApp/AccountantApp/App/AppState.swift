@@ -85,8 +85,16 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Creates an account.
+    ///
+    /// `currency` should be set for balance-bearing accounts and left nil for
+    /// category accounts, which accept any currency. See `Account.currency`.
     @discardableResult
-    func createAccount(name: String, kind: AccountKind) async -> Bool {
+    func createAccount(
+        name: String,
+        kind: AccountKind,
+        currency: Currency? = nil
+    ) async -> Bool {
         let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !cleanedName.isEmpty else {
@@ -94,8 +102,18 @@ final class AppState: ObservableObject {
             return false
         }
 
+        // Keep new accounts at the end of the user's ordering.
+        let nextSortOrder = (ledger.accounts.values.map(\.sortOrder).max() ?? 0) + 1
+
         return await mutateAndSave { ledger in
-            ledger.addAccount(Account(name: cleanedName, kind: kind))
+            ledger.addAccount(
+                Account(
+                    name: cleanedName,
+                    kind: kind,
+                    currency: currency,
+                    sortOrder: nextSortOrder
+                )
+            )
         }
     }
 
@@ -240,6 +258,43 @@ final class AppState: ObservableObject {
         await mutateAndSave { ledger in
             try ledger.finalizeTransaction(id: id)
         }
+    }
+
+    @discardableResult
+    func deleteDraftTransaction(id: TransactionID) async -> Bool {
+        await mutateAndSave { ledger in
+            try ledger.deleteDraftTransaction(id: id)
+        }
+    }
+
+    /// Records whether the bank has confirmed a transaction against one account.
+    ///
+    /// Works on finalized transactions by design — clearing is a statement fact,
+    /// not an edit to the accounting.
+    @discardableResult
+    func setCleared(
+        _ cleared: Bool,
+        forAccount accountID: AccountID,
+        in transactionID: TransactionID
+    ) async -> Bool {
+        await mutateAndSave { ledger in
+            try ledger.setCleared(cleared, forAccount: accountID, in: transactionID)
+        }
+    }
+
+    /// Currency used where no account dictates one — dashboard roll-ups, mainly.
+    ///
+    /// Interim home for what should become a real setting. It at least replaces
+    /// three separate `Currency("EUR")` literals scattered across views with one
+    /// value that the whole app agrees on.
+    var displayCurrency: Currency {
+        Currency("EUR")
+    }
+
+    /// The currency to present an account in: its own if it declares one,
+    /// otherwise the app default.
+    func currency(for account: Account) -> Currency {
+        account.currency ?? displayCurrency
     }
 
     @discardableResult

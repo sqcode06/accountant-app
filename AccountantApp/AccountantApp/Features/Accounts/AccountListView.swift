@@ -6,7 +6,6 @@ struct AccountListView: View {
 
     @State private var isShowingArchived = false
     @State private var isPresentingNewAccount = false
-    @State private var accountToEdit: EditableAccount?
 
     var body: some View {
         Group {
@@ -20,31 +19,32 @@ struct AccountListView: View {
                 List {
                     Section {
                         ForEach(visibleAccounts, id: \.id) { account in
-                            AccountRowView(account: account)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    accountToEdit = EditableAccount(account: account)
-                                }
-                                .swipeActions(edge: .trailing) {
-                                    if account.status == .active {
-                                        Button(role: .destructive) {
-                                            Task {
-                                                await appState.archiveAccount(id: account.id)
-                                            }
-                                        } label: {
-                                            Label("Archive", systemImage: "archivebox")
+                            NavigationLink {
+                                AccountDetailView(accountID: account.id)
+                                    .environmentObject(appState)
+                            } label: {
+                                AccountRowView(account: account)
+                            }
+                            .swipeActions(edge: .trailing) {
+                                if account.status == .active {
+                                    Button(role: .destructive) {
+                                        Task {
+                                            await appState.archiveAccount(id: account.id)
                                         }
-                                    } else {
-                                        Button {
-                                            Task {
-                                                await appState.restoreAccount(id: account.id)
-                                            }
-                                        } label: {
-                                            Label("Restore", systemImage: "arrow.uturn.backward")
-                                        }
-                                        .tint(.blue)
+                                    } label: {
+                                        Label("Archive", systemImage: "archivebox")
                                     }
+                                } else {
+                                    Button {
+                                        Task {
+                                            await appState.restoreAccount(id: account.id)
+                                        }
+                                    } label: {
+                                        Label("Restore", systemImage: "arrow.uturn.backward")
+                                    }
+                                    .tint(.blue)
                                 }
+                            }
                         }
                     } header: {
                         Text(isShowingArchived ? "All Accounts" : "Active Accounts")
@@ -80,10 +80,6 @@ struct AccountListView: View {
         }
         .sheet(isPresented: $isPresentingNewAccount) {
             AccountEditorView(mode: .create)
-                .environmentObject(appState)
-        }
-        .sheet(item: $accountToEdit) { editableAccount in
-            AccountEditorView(mode: .edit(editableAccount.account))
                 .environmentObject(appState)
         }
     }
@@ -151,14 +147,6 @@ private struct AccountRowView: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-private struct EditableAccount: Identifiable {
-    let account: Account
-
-    var id: AccountID {
-        account.id
     }
 }
 

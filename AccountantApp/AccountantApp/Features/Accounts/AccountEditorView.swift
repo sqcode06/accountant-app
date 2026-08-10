@@ -14,6 +14,7 @@ struct AccountEditorView: View {
 
     @State private var name: String
     @State private var kind: AccountKind
+    @State private var currency: Currency
 
     init(mode: Mode) {
         self.mode = mode
@@ -22,9 +23,11 @@ struct AccountEditorView: View {
         case .create:
             _name = State(initialValue: "")
             _kind = State(initialValue: .asset)
+            _currency = State(initialValue: Currency("EUR"))
         case let .edit(account):
             _name = State(initialValue: account.name)
             _kind = State(initialValue: account.kind)
+            _currency = State(initialValue: account.currency ?? Currency("EUR"))
         }
     }
 
@@ -48,6 +51,32 @@ struct AccountEditorView: View {
                         Text("Account kind is fixed for now. Create a new account if the bucket belongs to a different accounting category.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    if kind.isDenominated {
+                        Picker("Currency", selection: $currency) {
+                            ForEach(CurrencyCatalog.options(including: currency), id: \.code) { option in
+                                Text(CurrencyCatalog.displayName(for: option)).tag(option)
+                            }
+                        }
+                        .disabled(isEditing)
+                    } else {
+                        HStack {
+                            Text("Currency")
+                            Spacer()
+                            Text("Any")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    if kind.isDenominated {
+                        Text(isEditing
+                             ? "Currency is fixed once an account has been created, so existing amounts stay meaningful."
+                             : "This account will only accept amounts in this currency. Anything else is rejected rather than quietly ignored.")
+                    } else {
+                        Text("Categories accept any currency. Groceries bought in euros and in dollars both belong here.")
                     }
                 }
 
@@ -137,7 +166,8 @@ struct AccountEditorView: View {
             case .create:
                 didSave = await appState.createAccount(
                     name: cleanedName,
-                    kind: kind
+                    kind: kind,
+                    currency: kind.isDenominated ? currency : nil
                 )
             case let .edit(account):
                 didSave = await appState.renameAccount(
