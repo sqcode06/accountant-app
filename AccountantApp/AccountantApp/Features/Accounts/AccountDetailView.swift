@@ -304,7 +304,14 @@ private enum AccountDetailPreviewData {
 
     /// A bank account with one cleared and one pending expense, so the header's
     /// cleared/pending split and both row states are visible in the canvas.
+    ///
+    /// An empty ledger on failure is fine here — the preview then renders the
+    /// empty state, which is also worth looking at.
     static func makeLedger() -> Ledger {
+        (try? buildLedger()) ?? Ledger()
+    }
+
+    private static func buildLedger() throws -> Ledger {
         var ledger = Ledger()
         let eur = Currency("EUR")
 
@@ -315,29 +322,26 @@ private enum AccountDetailPreviewData {
             Account(id: groceriesID, name: "Groceries", kind: .expense)
         )
 
-        guard
-            let cleared = try? Transaction.draftExpense(
-                paidFrom: bankID,
-                category: groceriesID,
-                amount: Money(Decimal(24.90), currency: eur),
-                date: Date(timeIntervalSince1970: 1_760_000_000),
-                memo: "Rimi"
-            ),
-            let pending = try? Transaction.draftExpense(
-                paidFrom: bankID,
-                category: groceriesID,
-                amount: Money(Decimal(8.40), currency: eur),
-                date: Date(timeIntervalSince1970: 1_760_200_000),
-                memo: "Bolt Food"
-            ),
-            (try? ledger.addTransaction(cleared)) != nil,
-            (try? ledger.addTransaction(pending)) != nil
-        else {
-            return ledger
-        }
+        let cleared = try Transaction.draftExpense(
+            paidFrom: bankID,
+            category: groceriesID,
+            amount: Money(Decimal(24.90), currency: eur),
+            date: Date(timeIntervalSince1970: 1_760_000_000),
+            memo: "Rimi"
+        )
 
-        try? ledger.finalizeTransaction(id: cleared.id)
-        try? ledger.setCleared(true, forAccount: bankID, in: cleared.id)
+        let pending = try Transaction.draftExpense(
+            paidFrom: bankID,
+            category: groceriesID,
+            amount: Money(Decimal(8.40), currency: eur),
+            date: Date(timeIntervalSince1970: 1_760_200_000),
+            memo: "Bolt Food"
+        )
+
+        try ledger.addTransaction(cleared)
+        try ledger.addTransaction(pending)
+        try ledger.finalizeTransaction(id: cleared.id)
+        try ledger.setCleared(true, forAccount: bankID, in: cleared.id)
 
         return ledger
     }
