@@ -587,6 +587,11 @@ final class AppState: ObservableObject {
 
     @discardableResult
     func applyImportPreview(_ preview: ImportPreview, using pipeline: ImportPipeline) async -> ImportApplyReport? {
+        // Writes directly rather than through mutateAndSave, so it needs the same
+        // guard: importing into a ledger that failed to load would write an empty
+        // one plus the import over the real file.
+        guard !refuseWriteWhileLocked() else { return nil }
+
         var updated = ledger
 
         do {

@@ -58,11 +58,8 @@ struct OverviewView: View {
                 .environmentObject(appState)
         }
         .sheet(isPresented: $isPresentingImport) {
-            NavigationStack {
-                ImportPreviewScreen()
-                    .navigationTitle("Import")
-                    .environmentObject(appState)
-            }
+            ImportFlow()
+                .environmentObject(appState)
         }
     }
 

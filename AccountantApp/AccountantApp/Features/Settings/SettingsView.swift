@@ -95,24 +95,54 @@ struct SettingsView: View {
                 .environmentObject(onboarding)
         }
         .sheet(isPresented: $isPresentingImport) {
-            NavigationStack {
-                ImportPreviewScreen()
-                    .navigationTitle("Import")
-                    .environmentObject(appState)
-            }
+            ImportFlow()
+                .environmentObject(appState)
         }
     }
 }
 
 /// Classification rules, lifted out of the import screen.
+///
+/// The add form lives here now. It used to exist only inside the old import
+/// screen, so deleting that screen would have left no way to create a rule at
+/// all — Settings could only list and delete them.
 private struct ClassificationRulesView: View {
     @EnvironmentObject private var appState: AppState
 
+    @State private var needle = ""
+    @State private var memo = ""
+    @State private var categoryID: AccountID?
+    @State private var isSaving = false
+
     var body: some View {
         List {
+            Section {
+                TextField("Text in the statement line", text: $needle)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                Picker("Category", selection: $categoryID) {
+                    Text("Leave unchanged").tag(AccountID?.none)
+
+                    ForEach(categories, id: \.id) { account in
+                        Text(account.name).tag(Optional(account.id))
+                    }
+                }
+                .tint(Theme.accent)
+
+                TextField("Rename to (optional)", text: $memo)
+
+                Button(isSaving ? "Adding…" : "Add rule", action: addRule)
+                    .disabled(!canAdd || isSaving)
+            } header: {
+                Text("New rule")
+            } footer: {
+                Text("When an imported line contains this text, it is categorised automatically. Matching ignores case.")
+            }
+
             if appState.classificationRules.isEmpty {
                 Section {
-                    Text("No rules yet. Rules are added while importing a statement.")
+                    Text("No rules yet.")
                         .font(.uiCaption)
                         .foregroundStyle(Theme.inkMuted)
                 }
@@ -143,6 +173,39 @@ private struct ClassificationRulesView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Import rules")
         .navigationBarTitleDisplayMode(.inline)
+        .appErrorAlert()
+    }
+
+    private var categories: [Account] {
+        appState.ledger.accounts.values
+            .filter { $0.status == .active && ($0.kind == .expense || $0.kind == .income) }
+            .sortedForDisplay()
+    }
+
+    /// A rule that changes nothing is not a rule.
+    private var canAdd: Bool {
+        !needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (categoryID != nil || !memo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private func addRule() {
+        isSaving = true
+
+        Task {
+            let added = await appState.createDescriptionContainsRule(
+                needle: needle,
+                counterpartyAccountID: categoryID,
+                cleanedMemo: memo
+            )
+
+            isSaving = false
+
+            if added {
+                needle = ""
+                memo = ""
+                categoryID = nil
+            }
+        }
     }
 
     private func summary(for rule: ClassificationRuleConfiguration) -> String {
