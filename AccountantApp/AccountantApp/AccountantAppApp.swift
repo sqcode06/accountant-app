@@ -4,6 +4,7 @@ import SwiftUI
 struct AccountantAppApp: App {
     @StateObject private var appState: AppState
     @StateObject private var themeManager = ThemeManager()
+    @StateObject private var onboarding = OnboardingController()
 
     init() {
         _appState = StateObject(
@@ -20,6 +21,7 @@ struct AccountantAppApp: App {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(themeManager)
+                .environmentObject(onboarding)
                 .task {
                     await appState.loadIfNeeded()
                 }

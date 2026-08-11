@@ -126,6 +126,38 @@ public struct Ledger: Sendable {
         transactions.remove(at: idx)
     }
 
+    /// Removes every transaction, finalized ones included, and keeps the accounts.
+    ///
+    /// This deliberately breaks the rule that finalized transactions are permanent,
+    /// so it is named to be hard to reach for by accident and kept well away from
+    /// `deleteDraftTransaction`. It is an administrative reset — start the books
+    /// over without rebuilding the chart of accounts — not part of bookkeeping.
+    ///
+    /// Anything calling this should be behind an explicit confirmation.
+    public mutating func removeAllTransactions() {
+        transactions.removeAll()
+    }
+
+    /// Removes accounts that have never been used, keeping the rest.
+    ///
+    /// An account referenced by any transaction is left alone: deleting it would
+    /// strand postings pointing at nothing, which no invariant could repair.
+    /// Returns the accounts actually removed.
+    @discardableResult
+    public mutating func removeUnusedAccounts() -> [Account] {
+        let referenced = Set(transactions.flatMap { $0.postings.map(\.accountID) })
+
+        let removable = accounts.values
+            .filter { !referenced.contains($0.id) }
+            .sorted { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }
+
+        for account in removable {
+            accounts.removeValue(forKey: account.id)
+        }
+
+        return removable
+    }
+
     public func exportFinalizedSnapshot() -> Ledger {
         var out = Ledger()
         out.accounts = self.accounts

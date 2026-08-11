@@ -342,6 +342,73 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Destructive resets
+
+    /// Clears every transaction, keeping accounts, categories and budgets.
+    ///
+    /// The one for throwing away test data without rebuilding your setup.
+    @discardableResult
+    func clearAllTransactions() async -> Bool {
+        await mutateAndSave { ledger in
+            ledger.removeAllTransactions()
+        }
+    }
+
+    /// Removes accounts nothing has ever referenced.
+    ///
+    /// Accounts with history are kept: deleting them would strand postings
+    /// pointing at nothing.
+    @discardableResult
+    func removeUnusedAccounts() async -> Bool {
+        await mutateAndSave { ledger in
+            ledger.removeUnusedAccounts()
+        }
+    }
+
+    /// Erases everything — ledger, budget and import rules.
+    ///
+    /// Each store is written separately, so a mid-way failure can leave the app
+    /// partly erased. That is reported rather than hidden: the alternative is
+    /// pretending a wipe succeeded when the budget file is still on disk.
+    @discardableResult
+    func eraseAllData() async -> Bool {
+        var succeeded = true
+
+        do {
+            try await repository.save(Ledger())
+            ledger = Ledger()
+        } catch {
+            lastError = AppError(error)
+            succeeded = false
+        }
+
+        do {
+            try await budgetRepository.save(Budget())
+            budget = Budget()
+        } catch {
+            if succeeded { lastError = AppError(error) }
+            succeeded = false
+        }
+
+        do {
+            try await classificationRuleRepository.save([])
+            classificationRules = []
+        } catch {
+            if succeeded { lastError = AppError(error) }
+            succeeded = false
+        }
+
+        if succeeded { lastError = nil }
+
+        return succeeded
+    }
+
+    /// Clears every monthly limit, leaving the ledger alone.
+    @discardableResult
+    func clearBudget() async -> Bool {
+        await saveBudget(Budget())
+    }
+
     // MARK: - Budget
 
     /// Sets a monthly limit for a category, effective from `period` onward.

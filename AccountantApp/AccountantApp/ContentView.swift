@@ -13,8 +13,10 @@ import AccountantCore
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var themeManager: ThemeManager
+    @EnvironmentObject private var onboarding: OnboardingController
 
     @State private var isPresentingCapture = false
+    @State private var isPresentingOnboarding = false
 
     /// Held here, above the theme rebuild, so switching theme leaves you on the
     /// tab you were already looking at.
@@ -53,6 +55,17 @@ struct ContentView: View {
         .sheet(isPresented: $isPresentingCapture) {
             QuickEntryView()
                 .environmentObject(appState)
+        }
+        .fullScreenCover(isPresented: $isPresentingOnboarding) {
+            OnboardingView { isPresentingOnboarding = false }
+                .environmentObject(appState)
+                .environmentObject(onboarding)
+        }
+        // Read once, on launch. Reading the controller directly in the binding
+        // would slam the guide shut the instant its status changed, before the
+        // finishing work had a chance to run.
+        .task {
+            isPresentingOnboarding = onboarding.shouldPresent
         }
         .alert(item: $appState.lastError) { error in
             Alert(
@@ -134,6 +147,7 @@ private struct CaptureButton: View {
     ContentView()
         .environmentObject(AppState(repository: PreviewLedgerRepository()))
         .environmentObject(ThemeManager())
+        .environmentObject(OnboardingController())
 }
 
 private struct PreviewLedgerRepository: LedgerRepository {

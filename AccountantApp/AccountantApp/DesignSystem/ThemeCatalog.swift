@@ -60,7 +60,7 @@ struct AppTheme: Identifiable, Hashable {
 
 enum ThemeCatalog {
 
-    static let all: [AppTheme] = [cobalt, graphite, indigo, moss, paper]
+    static let all: [AppTheme] = [cobalt, ember, graphite, indigo, moss, paper]
 
     static let `default` = cobalt
 
@@ -106,6 +106,42 @@ enum ThemeCatalog {
             inflow: 0x34D9A4,
             deficit: 0xFF6B63,
             pending: 0xF0A741
+        )
+    )
+
+    // MARK: - Ember
+
+    /// Warm black with a glowing orange accent.
+    ///
+    /// Orange is a demanding accent because it collides with the two colours money
+    /// apps normally reach for: amber for pending and red for deficit both sit next
+    /// to it on the wheel and turn muddy. So this palette moves them out of its way
+    /// — pending goes lighter and yellower, deficit goes pink-red — and money in
+    /// takes a cool mint that the orange has nothing to argue with.
+    ///
+    /// Blacks are warm rather than neutral, so the accent reads as heat coming off
+    /// the surface instead of a sticker on top of it.
+    static let ember = AppTheme(
+        id: "ember",
+        name: "Ember",
+        blurb: "Warm black with a glowing orange accent.",
+        light: nil,
+        dark: ThemePalette(
+            canvas: 0x0A0908,
+            surface: 0x15120F,
+            surfaceRaised: 0x1E1A15,
+            surfaceSunken: 0x0F0D0B,
+            ink: 0xF5F1EC,
+            inkMuted: 0x9A9088,
+            inkFaint: 0x6A625B,
+            // The accent is bright enough that text on it must be dark.
+            inkInverse: 0x0A0908,
+            hairline: 0x2A251F,
+            accent: 0xFF7A29,
+            accentWash: 0x2E1C0D,
+            inflow: 0x35D6A0,
+            deficit: 0xFF4D6D,
+            pending: 0xFFC24D
         )
     )
 

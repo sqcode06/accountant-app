@@ -9,12 +9,16 @@ import AccountantCore
 /// discoverable if you were already importing.
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var onboarding: OnboardingController
 
     @State private var isPresentingImport = false
+    @State private var isPresentingOnboarding = false
 
     var body: some View {
         List {
-            // First on purpose: changing theme rebuilds the tab content, which
+            SetupGuideWidget { isPresentingOnboarding = true }
+
+            // High on purpose: changing theme rebuilds the tab content, which
             // scrolls this list back to the top. Anything lower would put the
             // control you just used off screen.
             ThemeSection()
@@ -60,9 +64,27 @@ struct SettingsView: View {
             } header: {
                 Text("Ledger")
             }
+
+            Section {
+                NavigationLink {
+                    DangerZoneView()
+                        .environmentObject(appState)
+                        .environmentObject(onboarding)
+                } label: {
+                    Label("Danger zone", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(Theme.deficit)
+                }
+            } footer: {
+                Text("Deleting transactions, clearing budgets, and starting over.")
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Settings")
+        .fullScreenCover(isPresented: $isPresentingOnboarding) {
+            OnboardingView { isPresentingOnboarding = false }
+                .environmentObject(appState)
+                .environmentObject(onboarding)
+        }
         .sheet(isPresented: $isPresentingImport) {
             NavigationStack {
                 ImportPreviewScreen()
