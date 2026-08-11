@@ -155,6 +155,7 @@ private struct CaptureButton: View {
         .environmentObject(AppState(repository: PreviewLedgerRepository()))
         .environmentObject(ThemeManager())
         .environmentObject(OnboardingController())
+        .environmentObject(AppIconManager())
 }
 
 private struct PreviewLedgerRepository: LedgerRepository {

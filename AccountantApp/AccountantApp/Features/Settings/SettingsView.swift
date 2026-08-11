@@ -23,6 +23,8 @@ struct SettingsView: View {
             // control you just used off screen.
             ThemeSection()
 
+            AppIconSection()
+
             Section("Accounts") {
                 NavigationLink {
                     AccountListView()

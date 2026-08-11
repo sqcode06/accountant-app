@@ -72,6 +72,14 @@ enum Theme {
     }
 }
 
+extension Color {
+    /// Builds a fixed colour from a palette value, for previewing a theme that is
+    /// not the active one.
+    init(rgb: UInt32) {
+        self.init(UIColor(rgb: rgb))
+    }
+}
+
 extension UIColor {
     convenience init(rgb: UInt32) {
         self.init(

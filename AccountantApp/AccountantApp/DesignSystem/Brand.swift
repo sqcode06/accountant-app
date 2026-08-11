@@ -36,19 +36,27 @@ struct BrandMark: View {
     /// that already has its own background.
     var isBare: Bool = false
 
+    /// Overrides for drawing a theme other than the active one — the icon picker
+    /// needs to show all six at once.
+    var ground: Color?
+    var ink: Color?
+
+    private var groundColor: Color { ground ?? Theme.brandGround }
+    private var inkColor: Color { ink ?? Theme.brandInk }
+
     var body: some View {
         ZStack {
             if !isBare {
                 RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
-                    .fill(Theme.brandGround)
+                    .fill(groundColor)
             }
 
             BrandBar(top: BrandBar.capturedTop)
-                .fill(Theme.brandInk)
+                .fill(inkColor)
                 .opacity(0.45)
 
             BrandBar(top: BrandBar.confirmedTop)
-                .fill(Theme.brandInk)
+                .fill(inkColor)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
