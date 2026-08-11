@@ -10,32 +10,77 @@ enum Brand {
     static let positioning = "Flexible budgets. Honest records."
     static let promise = "Record now. Review later."
     static let idea = "A soft routine with a hard record."
-
-    /// Brand colours do not follow the selected app theme. A Moss or Ember
-    /// interface should still be recognisable as the same product on launch.
-    enum Palette {
-        static let cobalt = Color(red: 47.0 / 255.0, green: 95.0 / 255.0, blue: 240.0 / 255.0)
-        static let paper = Color(red: 247.0 / 255.0, green: 246.0 / 255.0, blue: 243.0 / 255.0)
-        static let settledMint = Color(red: 52.0 / 255.0, green: 217.0 / 255.0, blue: 164.0 / 255.0)
-    }
 }
 
-/// Two balanced ribbons: one action recorded twice, and a captured entry that
-/// later settles. The open centre keeps the symbol quiet and leaves it legible at
-/// app-icon size.
+/// Two entries: one captured, one confirmed.
+///
+/// The mark encodes the product loop rather than the accounting engine. Everything
+/// in this category signals *balance* — scales, equals signs, mirrored halves — but
+/// balance is what the ledger does, not what the app is for. What this app actually
+/// does is let you record carelessly now and settle it later, so the mark is the
+/// same form twice in its two states: ghosted for captured, solid for confirmed.
+///
+/// The slant is time. Two level bars would read as an equals sign, which is the
+/// generic answer for anything financial; slanting them turns a static comparison
+/// into a sequence.
+///
+/// Colours come from the theme's `brandGround`/`brandInk`, which are the exact
+/// values the app icon is generated from — so the mark on screen and the icon on
+/// the home screen are the same artwork rather than cousins. An earlier version
+/// hardcoded one brand palette and stroked bezier curves, which rendered as a
+/// chunky X and sat as a cobalt square inside an orange interface.
 struct BrandMark: View {
     var size: CGFloat = 64
 
+    /// Draws the two bars without the tile behind them, for placing on a surface
+    /// that already has its own background.
+    var isBare: Bool = false
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .fill(Brand.Palette.cobalt)
+            if !isBare {
+                RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
+                    .fill(Theme.brandGround)
+            }
 
-            RibbonGlyph()
-                .padding(size * 0.19)
+            BrandBar(top: BrandBar.capturedTop)
+                .fill(Theme.brandInk)
+                .opacity(0.45)
+
+            BrandBar(top: BrandBar.confirmedTop)
+                .fill(Theme.brandInk)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+}
+
+/// One slanted bar, in coordinates normalised against the 1024pt icon artwork.
+private struct BrandBar: Shape {
+    /// Normalised y of the bar's top edge.
+    let top: CGFloat
+
+    static let capturedTop: CGFloat = 380.0 / 1024
+    static let confirmedTop: CGFloat = 546.0 / 1024
+
+    private let left: CGFloat = 212.0 / 1024
+    private let right: CGFloat = 836.0 / 1024
+    private let slant: CGFloat = 114.0 / 1024
+    private let height: CGFloat = 106.0 / 1024
+
+    func path(in rect: CGRect) -> Path {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
+        }
+
+        var path = Path()
+        path.move(to: point(left + slant, top))
+        path.addLine(to: point(right, top))
+        path.addLine(to: point(right - slant, top + height))
+        path.addLine(to: point(left, top + height))
+        path.closeSubpath()
+
+        return path
     }
 }
 
@@ -61,75 +106,17 @@ struct BrandSignature: View {
     }
 }
 
-private struct RibbonGlyph: View {
-    var body: some View {
-        GeometryReader { proxy in
-            let lineWidth = proxy.size.width * 0.22
-
-            ZStack {
-                Ribbon(mirrored: false)
-                    .stroke(
-                        Brand.Palette.paper,
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt, lineJoin: .round)
-                    )
-
-                Ribbon(mirrored: true)
-                    .stroke(
-                        Brand.Palette.paper,
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt, lineJoin: .round)
-                    )
-
-                Ribbon(mirrored: true)
-                    .stroke(
-                        Brand.Palette.settledMint,
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt, lineJoin: .round)
-                    )
-                    .mask(alignment: .top) {
-                        Rectangle()
-                            .frame(height: proxy.size.height * 0.49)
-                    }
-            }
-        }
-    }
-}
-
-private struct Ribbon: Shape {
-    let mirrored: Bool
-
-    func path(in rect: CGRect) -> Path {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(
-                x: rect.minX + (mirrored ? 1 - x : x) * rect.width,
-                y: rect.minY + y * rect.height
-            )
-        }
-
-        var path = Path()
-        path.move(to: point(0.17, 0.10))
-        path.addCurve(
-            to: point(0.40, 0.34),
-            control1: point(0.27, 0.18),
-            control2: point(0.40, 0.20)
-        )
-        path.addCurve(
-            to: point(0.40, 0.55),
-            control1: point(0.45, 0.40),
-            control2: point(0.45, 0.49)
-        )
-        path.addCurve(
-            to: point(0.17, 0.90),
-            control1: point(0.40, 0.69),
-            control2: point(0.27, 0.81)
-        )
-        return path
-    }
-}
-
 #Preview("Brand mark") {
     VStack(spacing: Metrics.Space.xl) {
-        BrandMark(size: 96)
+        HStack(spacing: Metrics.Space.l) {
+            BrandMark(size: 96)
+            BrandMark(size: 60)
+            BrandMark(size: 40)
+        }
+
         BrandSignature()
     }
-    .padding()
+    .padding(Metrics.Space.xl)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Theme.canvas)
 }

@@ -27,6 +27,15 @@ struct ThemePalette: Hashable {
     let inflow: UInt32
     let deficit: UInt32
     let pending: UInt32
+
+    /// The brand mark's own ground and ink.
+    ///
+    /// Separate from `accent`/`inkInverse` because the icon's best ground is not
+    /// always the theme's accent — Ember's mark is orange on near-black, not black
+    /// on orange. These are the exact values the app icon is generated from, so
+    /// the mark on screen and the icon on the home screen are the same artwork.
+    let brandGround: UInt32
+    let brandInk: UInt32
 }
 
 struct AppTheme: Identifiable, Hashable {
@@ -89,7 +98,9 @@ enum ThemeCatalog {
             accentWash: 0xE8EEFF,
             inflow: 0x0FA47A,
             deficit: 0xE0443E,
-            pending: 0xC77A0A
+            pending: 0xC77A0A,
+            brandGround: 0x2F5FF0,
+            brandInk: 0xFFFFFF
         ),
         dark: ThemePalette(
             canvas: 0x0B0D10,
@@ -105,7 +116,9 @@ enum ThemeCatalog {
             accentWash: 0x1B2436,
             inflow: 0x34D9A4,
             deficit: 0xFF6B63,
-            pending: 0xF0A741
+            pending: 0xF0A741,
+            brandGround: 0x2F5FF0,
+            brandInk: 0xFFFFFF
         )
     )
 
@@ -141,7 +154,9 @@ enum ThemeCatalog {
             accentWash: 0x2E1C0D,
             inflow: 0x35D6A0,
             deficit: 0xFF4D6D,
-            pending: 0xFFC24D
+            pending: 0xFFC24D,
+            brandGround: 0x12100E,
+            brandInk: 0xFF7A29
         )
     )
 
@@ -169,7 +184,9 @@ enum ThemeCatalog {
             accentWash: 0x22262C,
             inflow: 0x7FBF9A,
             deficit: 0xD98A80,
-            pending: 0xC9A96A
+            pending: 0xC9A96A,
+            brandGround: 0x1A1A1C,
+            brandInk: 0xF2F1EF
         )
     )
 
@@ -195,7 +212,9 @@ enum ThemeCatalog {
             accentWash: 0x231F3A,
             inflow: 0x3FD9C9,
             deficit: 0xFF6B8A,
-            pending: 0xE0A64F
+            pending: 0xE0A64F,
+            brandGround: 0x15141F,
+            brandInk: 0x8B7CF6
         )
     )
 
@@ -221,7 +240,9 @@ enum ThemeCatalog {
             accentWash: 0x1A2A1F,
             inflow: 0x6FD99A,
             deficit: 0xE08878,
-            pending: 0xD4B26A
+            pending: 0xD4B26A,
+            brandGround: 0x141A16,
+            brandInk: 0x8FC7A0
         )
     )
 
@@ -247,7 +268,9 @@ enum ThemeCatalog {
             accentWash: 0xE7ECF4,
             inflow: 0x15795C,
             deficit: 0xB03A2E,
-            pending: 0x9C6B1A
+            pending: 0x9C6B1A,
+            brandGround: 0xF7F6F3,
+            brandInk: 0x24406B
         ),
         dark: nil
     )

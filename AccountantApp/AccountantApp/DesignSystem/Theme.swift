@@ -55,6 +55,12 @@ enum Theme {
     /// Recorded, not yet seen on a statement.
     static var pending: Color { color(\.pending) }
 
+    // MARK: - Brand
+
+    /// The mark's ground and ink for the active theme, matching its app icon.
+    static var brandGround: Color { color(\.brandGround) }
+    static var brandInk: Color { color(\.brandInk) }
+
     // MARK: - Resolution
 
     private static func color(_ slot: KeyPath<ThemePalette, UInt32>) -> Color {
