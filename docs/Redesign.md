@@ -135,9 +135,12 @@ Flows that were impossible before this branch, and should stay working:
 
 1. Two accounts in different currencies; net position never silently converts.
 2. Tap an account → detail → its transactions.
-3. Tap a transaction → edit → delete a draft. *(still pending — Phase 2)*
+3. Tap a transaction → see its postings → delete a draft.
 4. Import a CSV with one malformed row; the good rows still import.
 5. Reconcile from account detail, ticking until the difference is zero.
-   *(core done; UI pending — Phase 2)*
 6. Dark mode on every screen: no white-on-white strokes.
 7. Largest Dynamic Type setting: hero figures scale.
+8. Capture spending in two gestures; it lands in review, not straight into history.
+9. Confirm a review batch; an invalid entry fails the whole batch rather than
+   committing half of it.
+10. Set a monthly limit, overspend it, confirm the bar and copy both flip.
