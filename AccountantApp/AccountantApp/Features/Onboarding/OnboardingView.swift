@@ -52,6 +52,7 @@ struct OnboardingView: View {
             footer
         }
         .background(Theme.canvas)
+        .appErrorAlert()
         .interactiveDismissDisabled()
     }
 
@@ -123,11 +124,19 @@ struct OnboardingView: View {
 
     private var welcomeStep: some View {
         VStack(alignment: .leading, spacing: Metrics.Space.l) {
-            title("Accountant")
+            BrandMark(size: 72)
 
-            Text("A budgeting app that keeps honest books underneath.")
-                .font(.title3)
-                .foregroundStyle(Theme.inkMuted)
+            VStack(alignment: .leading, spacing: Metrics.Space.s) {
+                title(Brand.productName)
+
+                Text(Brand.positioning)
+                    .font(.title3)
+                    .foregroundStyle(Theme.inkMuted)
+
+                Text(Brand.promise)
+                    .font(.uiLabel)
+                    .foregroundStyle(Theme.accent)
+            }
 
             VStack(alignment: .leading, spacing: Metrics.Space.m) {
                 point(
@@ -298,7 +307,7 @@ struct OnboardingView: View {
         case .welcome: "Get started"
         case .account: "Continue"
         case .categories: "Continue"
-        case .done: isFinishing ? "Setting up…" : "Start using Accountant"
+        case .done: isFinishing ? "Setting up…" : "Start using \(Brand.productName)"
         }
     }
 

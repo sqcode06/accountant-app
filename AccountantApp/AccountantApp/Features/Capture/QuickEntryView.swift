@@ -49,6 +49,7 @@ struct QuickEntryView: View {
                     accountPicker
                 }
             }
+            .appErrorAlert()
             .onAppear(perform: selectDefaultAccountIfNeeded)
             .sheet(isPresented: $isPresentingAllCategories) {
                 CategoryPickerSheet(categories: categories) { category in

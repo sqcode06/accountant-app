@@ -27,6 +27,7 @@ struct ImportPreviewScreen: View {
         .background {
             importBackground
         }
+        .appErrorAlert()
         .onAppear(perform: ensureDefaultSelections)
         .onChange(of: source) { _, _ in
             resetPreview()

@@ -68,3 +68,6 @@ fastlane/test_output
 
 # Swift Package Manager build output
 .build/
+
+# Private product/commercial material — never commit to a public repo
+docs/product-assessment/

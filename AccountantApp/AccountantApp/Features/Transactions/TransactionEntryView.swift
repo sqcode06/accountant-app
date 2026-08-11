@@ -5,8 +5,6 @@ struct TransactionEntryView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
-    // Temporary until app settings / preferred display currency exist.
-    private let entryCurrency = Currency("EUR")
 
     @State private var selectedKind: TransactionEntryKind = .expense
     @State private var amountText = ""
@@ -41,6 +39,7 @@ struct TransactionEntryView: View {
                 .ignoresSafeArea()
             }
             .navigationTitle("New transaction")
+            .appErrorAlert()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -207,6 +206,35 @@ struct TransactionEntryView: View {
         }
     }
 
+    /// The currency of the account the money moves through.
+    ///
+    /// Previously hardcoded to EUR. Once the ledger began rejecting postings whose
+    /// currency does not match the account's, that literal made this screen unable
+    /// to record anything against a non-EUR account at all — and the failure was
+    /// invisible, because the only alert in the app sat underneath this sheet.
+    private var entryCurrency: Currency {
+        guard
+            let primaryAccountID,
+            let account = appState.ledger.accounts[primaryAccountID]
+        else {
+            return appState.displayCurrency
+        }
+
+        return appState.currency(for: account)
+    }
+
+    /// The counterpart's declared currency, when it has one. Categories do not.
+    private var counterpartCurrency: Currency? {
+        guard
+            let counterpartAccountID,
+            let account = appState.ledger.accounts[counterpartAccountID]
+        else {
+            return nil
+        }
+
+        return account.currency
+    }
+
     private var primaryAccounts: [Account] {
         activeAccounts(matching: selectedKind.primaryAccountKinds)
     }
@@ -263,6 +291,13 @@ struct TransactionEntryView: View {
 
         if selectedKind == .transfer, primaryAccountID == counterpartAccountID {
             return "Choose two different accounts for a transfer."
+        }
+
+        // Both sides of a transfer hold balances, so both may declare a currency.
+        // There is no conversion anywhere in this app, so a mismatch cannot be
+        // recorded — say so here rather than letting the save fail.
+        if let counterpartCurrency, counterpartCurrency != entryCurrency {
+            return "Both accounts must use \(entryCurrency.code). Transfers between currencies need an explicit conversion."
         }
 
         return nil

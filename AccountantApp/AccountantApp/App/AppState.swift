@@ -7,6 +7,11 @@ final class AppState: ObservableObject {
     @Published private(set) var isLoading: Bool
     @Published private(set) var classificationRules: [ClassificationRuleConfiguration]
     @Published private(set) var budget: Budget
+
+    /// Set when a store was found damaged. While this holds, every write is
+    /// refused — see `DataProtection`.
+    @Published private(set) var dataProtection: DataProtection = .ok
+
     @Published var lastError: AppError?
 
     private let repository: LedgerRepository
@@ -36,40 +41,96 @@ final class AppState: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        var loadingError: Error?
+        var damage: [QuarantineRecord] = []
 
-        do {
-            ledger = try await repository.loadOrCreate()
-        } catch {
+        switch await repository.load() {
+        case let .loaded(loaded): ledger = loaded
+        case .empty: ledger = Ledger()
+        case let .unreadable(record):
             ledger = Ledger()
-            loadingError = error
+            damage.append(record)
         }
 
-        do {
-            classificationRules = try await classificationRuleRepository.loadOrCreate()
-        } catch {
+        switch await classificationRuleRepository.load() {
+        case let .loaded(rules): classificationRules = rules
+        case .empty: classificationRules = []
+        case let .unreadable(record):
             classificationRules = []
-
-            if loadingError == nil {
-                loadingError = error
-            }
+            damage.append(record)
         }
 
-        do {
-            budget = try await budgetRepository.loadOrCreate()
-        } catch {
+        switch await budgetRepository.load() {
+        case let .loaded(loaded): budget = loaded
+        case .empty: budget = Budget()
+        case let .unreadable(record):
             budget = Budget()
-
-            if loadingError == nil {
-                loadingError = error
-            }
+            damage.append(record)
         }
 
-        if let loadingError {
-            lastError = AppError(loadingError)
-        } else {
+        // Any damage locks writing. The in-memory state is empty but the real data
+        // is sitting in a quarantine file, and the one thing that must not happen
+        // is saving this emptiness over it.
+        if damage.isEmpty {
+            dataProtection = .ok
             lastError = nil
+        } else {
+            dataProtection = .locked(damage)
         }
+    }
+
+    // MARK: - Data protection
+
+    enum DataProtection: Equatable {
+        case ok
+
+        /// One or more stores were unreadable and have been quarantined. No write
+        /// may proceed until the user resolves this.
+        case locked([QuarantineRecord])
+
+        var isLocked: Bool {
+            if case .locked = self { return true }
+            return false
+        }
+
+        var quarantined: [QuarantineRecord] {
+            if case let .locked(records) = self { return records }
+            return []
+        }
+    }
+
+    var isDataLocked: Bool { dataProtection.isLocked }
+
+    /// Accepts the loss and starts over. The quarantined files stay on disk.
+    func startFreshAfterDamage() async {
+        guard isDataLocked else { return }
+
+        dataProtection = .ok
+        lastError = nil
+
+        // Write the now-empty state so the app is in a consistent, known place.
+        _ = await mutateAndSave { _ in }
+    }
+
+    /// Tries the load again — for when the cause was transient, such as the file
+    /// being unavailable rather than corrupt.
+    func retryLoadAfterDamage() async {
+        didAttemptInitialLoad = false
+        dataProtection = .ok
+        await loadIfNeeded()
+    }
+
+    private func refuseWriteWhileLocked() -> Bool {
+        guard isDataLocked else { return false }
+
+        let names = dataProtection.quarantined
+            .map { $0.quarantinedURL.lastPathComponent }
+            .joined(separator: ", ")
+
+        lastError = AppError(
+            message: "Saving is paused because your saved data could not be read. The original file is safe as \(names). Choose Start fresh or Try again to continue."
+        )
+
+        return true
     }
 
     @discardableResult
@@ -86,6 +147,8 @@ final class AppState: ObservableObject {
 
     @discardableResult
     private func mutateAndSave(_ mutate: (inout Ledger) throws -> Void) async -> Bool {
+        guard !refuseWriteWhileLocked() else { return false }
+
         var updated = ledger
 
         do {
@@ -354,14 +417,44 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Removes accounts nothing has ever referenced.
+    /// Removes accounts nothing has ever referenced, and any budget limits that
+    /// were set on them.
     ///
     /// Accounts with history are kept: deleting them would strand postings
     /// pointing at nothing.
+    ///
+    /// The budget half matters because the accounts this removes — created, never
+    /// used — are exactly the ones likely to carry a limit and no transactions. An
+    /// earlier version dropped the account and left its `BudgetTarget` behind,
+    /// pointing at an ID that no longer existed.
     @discardableResult
     func removeUnusedAccounts() async -> Bool {
-        await mutateAndSave { ledger in
-            ledger.removeUnusedAccounts()
+        guard !refuseWriteWhileLocked() else { return false }
+
+        var updatedLedger = ledger
+        let removed = updatedLedger.removeUnusedAccounts()
+
+        guard !removed.isEmpty else {
+            lastError = nil
+            return true
+        }
+
+        var updatedBudget = budget
+        for account in removed {
+            updatedBudget.forget(accountID: account.id)
+        }
+
+        do {
+            try await repository.save(updatedLedger)
+            try await budgetRepository.save(updatedBudget)
+
+            ledger = updatedLedger
+            budget = updatedBudget
+            lastError = nil
+            return true
+        } catch {
+            lastError = AppError(error)
+            return false
         }
     }
 
@@ -372,6 +465,10 @@ final class AppState: ObservableObject {
     /// pretending a wipe succeeded when the budget file is still on disk.
     @discardableResult
     func eraseAllData() async -> Bool {
+        // Deliberately allowed while locked: erasing is a valid way out of damage,
+        // and the quarantined copies survive it.
+        dataProtection = .ok
+
         var succeeded = true
 
         do {
@@ -460,6 +557,8 @@ final class AppState: ObservableObject {
 
     @discardableResult
     private func saveBudget(_ updated: Budget) async -> Bool {
+        guard !refuseWriteWhileLocked() else { return false }
+
         do {
             try await budgetRepository.save(updated)
             budget = updated
@@ -566,6 +665,8 @@ final class AppState: ObservableObject {
 
     @discardableResult
     private func saveClassificationRules(_ updatedRules: [ClassificationRuleConfiguration]) async -> Bool {
+        guard !refuseWriteWhileLocked() else { return false }
+
         do {
             try await classificationRuleRepository.save(updatedRules)
             classificationRules = updatedRules

@@ -116,6 +116,7 @@ struct AccountEditorView: View {
                 }
             }
             .navigationTitle(title)
+            .appErrorAlert()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {

@@ -37,6 +37,14 @@ struct LocalJSONLedgerRepository: LedgerRepository {
         }.value
     }
 
+    /// The safe path. Quarantines an unreadable file rather than reporting it as
+    /// an error the caller will mistake for emptiness.
+    func load() async -> LedgerLoadOutcome {
+        await Task.detached(priority: .utility) {
+            store.loadOutcome()
+        }.value
+    }
+
     func save(_ ledger: Ledger) async throws {
         try await Task.detached(priority: .utility) {
             try store.save(ledger)

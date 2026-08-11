@@ -77,6 +77,13 @@ struct SettingsView: View {
             } footer: {
                 Text("Deleting transactions, clearing budgets, and starting over.")
             }
+
+            Section {
+                BrandSignature()
+                    .padding(.vertical, Metrics.Space.xs)
+            } footer: {
+                Text(Brand.promise)
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Settings")

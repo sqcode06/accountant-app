@@ -27,6 +27,19 @@ struct ContentView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            if appState.isDataLocked {
+                DataRecoveryBanner()
+                    .environmentObject(appState)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            tabs
+        }
+        .animation(.snappy(duration: 0.25), value: appState.isDataLocked)
+    }
+
+    private var tabs: some View {
         TabView(selection: $selectedTab) {
             tab(title: "Overview", systemImage: "square.grid.2x2") {
                 OverviewView()
@@ -67,13 +80,7 @@ struct ContentView: View {
         .task {
             isPresentingOnboarding = onboarding.shouldPresent
         }
-        .alert(item: $appState.lastError) { error in
-            Alert(
-                title: Text("Something went wrong"),
-                message: Text(error.message),
-                dismissButton: .default(Text("OK"))
-            )
-        }
+        .appErrorAlert()
     }
 
     /// Every tab carries the capture button. Recording a purchase is the single

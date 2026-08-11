@@ -1,4 +1,5 @@
 import Foundation
+import AccountantCore
 
 struct LocalJSONClassificationRuleRepository: ClassificationRuleRepository {
     let fileURL: URL
@@ -23,16 +24,23 @@ struct LocalJSONClassificationRuleRepository: ClassificationRuleRepository {
         return LocalJSONClassificationRuleRepository(fileURL: fileURL)
     }
 
+    private var store: JSONFileStore<[ClassificationRuleConfiguration]> {
+        JSONFileStore(fileURL: fileURL) { [] }
+    }
+
     func loadOrCreate() async throws -> [ClassificationRuleConfiguration] {
-        let fileURL = fileURL
+        switch await load() {
+        case let .loaded(rules): return rules
+        case .empty, .unreadable: return []
+        }
+    }
 
-        return try await Task.detached(priority: .utility) {
-            guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                return []
-            }
+    /// The safe path — see `LocalJSONBudgetRepository.load()`.
+    func load() async -> StoreLoadOutcome<[ClassificationRuleConfiguration]> {
+        let store = store
 
-            let data = try Data(contentsOf: fileURL)
-            return try Self.decoder.decode([ClassificationRuleConfiguration].self, from: data)
+        return await Task.detached(priority: .utility) {
+            store.loadOutcome()
         }.value
     }
 

@@ -53,6 +53,7 @@ struct BudgetTargetEditor: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .appErrorAlert()
             .onAppear(perform: seedFromCurrentAmount)
         }
         .presentationDetents([.large])
