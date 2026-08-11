@@ -16,6 +16,12 @@ public enum ImportError: Error, Equatable, Sendable {
     /// Reported as a per-line failure so the row is visibly rejected in the preview,
     /// rather than being imported and then silently excluded from every balance.
     case currencyMismatch(AccountID, expected: Currency, actual: Currency)
+
+    /// The statement lists a fee but no account was chosen to hold it.
+    ///
+    /// Reported rather than absorbed: folding the fee into the amount would hide
+    /// what charges cost, and dropping it would leave the balance short.
+    case feeAccountMissing
 }
 
 public enum ImportLineOutcome: Equatable, Sendable {
@@ -114,6 +120,9 @@ public extension ImportPipeline {
 
             do {
                 draft = try makeDraft(from: line, now: now)
+            } catch let error as ImportError {
+                outcomes.append(.failed(line: line, error: error))
+                continue
             } catch {
                 outcomes.append(
                     .failed(line: line, error: .invalidTransaction)
