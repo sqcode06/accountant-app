@@ -14,6 +14,11 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            // First on purpose: changing theme rebuilds the tab content, which
+            // scrolls this list back to the top. Anything lower would put the
+            // control you just used off screen.
+            ThemeSection()
+
             Section("Accounts") {
                 NavigationLink {
                     AccountListView()

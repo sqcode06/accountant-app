@@ -12,28 +12,44 @@ import AccountantCore
 /// Activity is where the record lives.
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var themeManager: ThemeManager
 
     @State private var isPresentingCapture = false
 
+    /// Held here, above the theme rebuild, so switching theme leaves you on the
+    /// tab you were already looking at.
+    @State private var selectedTab = Tab.overview
+
+    private enum Tab: Hashable {
+        case overview, budget, activity, settings
+    }
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             tab(title: "Overview", systemImage: "square.grid.2x2") {
                 OverviewView()
             }
+            .tag(Tab.overview)
 
             tab(title: "Budget", systemImage: "chart.bar") {
                 BudgetView()
             }
+            .tag(Tab.budget)
 
             tab(title: "Activity", systemImage: "list.bullet") {
                 ActivityView()
             }
+            .tag(Tab.activity)
 
             tab(title: "Settings", systemImage: "gearshape") {
                 SettingsView()
             }
+            .tag(Tab.settings)
         }
         .tint(Theme.accent)
+        // A theme only defines an appearance override when it has a palette for
+        // just one. Themes covering both leave the system setting alone.
+        .preferredColorScheme(themeManager.forcedColorScheme)
         .sheet(isPresented: $isPresentingCapture) {
             QuickEntryView()
                 .environmentObject(appState)
@@ -64,6 +80,15 @@ struct ContentView: View {
                     content()
                 }
             }
+            // Forces a real rebuild when the theme changes. `Theme` resolves
+            // through a static, which SwiftUI's dependency tracking cannot see, so
+            // without this the app keeps drawing the previous palette until
+            // something unrelated happens to invalidate it.
+            //
+            // Deliberately inside the NavigationStack and below the tab item: an
+            // `.id()` on the tab child itself would change the identity TabView
+            // uses for selection and fight the `.tag` above.
+            .id(themeManager.generation)
             .background(Theme.canvas)
             .overlay(alignment: .bottomTrailing) {
                 if !appState.isLoading {
@@ -108,6 +133,7 @@ private struct CaptureButton: View {
 #Preview {
     ContentView()
         .environmentObject(AppState(repository: PreviewLedgerRepository()))
+        .environmentObject(ThemeManager())
 }
 
 private struct PreviewLedgerRepository: LedgerRepository {

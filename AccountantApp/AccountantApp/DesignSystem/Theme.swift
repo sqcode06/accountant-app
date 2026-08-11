@@ -1,88 +1,72 @@
 import SwiftUI
 
-/// Palette and surfaces.
+/// Semantic colour access for the whole app.
 ///
-/// Direction: modern premium consumer fintech. Sleek, high contrast, confident
-/// with space. Depth on dark comes from *layering* — surfaces get lighter as they
-/// come forward — rather than from shadows, which go muddy on dark backgrounds.
+/// Views never name a palette or an appearance — they ask for `Theme.canvas` and
+/// get whatever the selected theme says the canvas is, in whatever appearance is
+/// currently on screen. That indirection is why adding a theme touches no screen.
 ///
-/// Colours are explicit hex with hand-tuned values for each appearance rather than
-/// system semantic colours. System colours are correct but anonymous; they make
-/// every app look like Settings. Dark mode here is designed, not inverted.
-///
-/// The accent is a small system rather than one shouting colour: cobalt carries
-/// brand and interaction, mint and amber carry meaning about money. Deliberately
-/// not the near-black-plus-one-acid-green look that every fintech template ships.
+/// Each property is *computed*, not stored, and hands back a `Color` backed by a
+/// dynamic `UIColor`. The closure runs at draw time, so a colour resolves against
+/// both the live theme and the live appearance rather than whatever was true when
+/// the view was first built.
 enum Theme {
 
-    // MARK: - Surfaces (light → forward on dark)
+    /// The active theme. Set through `ThemeManager`, never directly.
+    static var current: AppTheme = ThemeCatalog.default
 
-    /// The page behind everything.
-    static let canvas = Color.adaptive(light: 0xF4F5F7, dark: 0x0B0D10)
+    // MARK: - Surfaces
 
-    /// A card or grouped row.
-    static let surface = Color.adaptive(light: 0xFFFFFF, dark: 0x16191F)
-
-    /// A surface sitting above another — a sheet, a highlighted card.
-    static let surfaceRaised = Color.adaptive(light: 0xFFFFFF, dark: 0x1E222A)
-
-    /// A region inset into a surface: a field, a well.
-    static let surfaceSunken = Color.adaptive(light: 0xEEEFF2, dark: 0x101317)
+    static var canvas: Color { color(\.canvas) }
+    static var surface: Color { color(\.surface) }
+    static var surfaceRaised: Color { color(\.surfaceRaised) }
+    static var surfaceSunken: Color { color(\.surfaceSunken) }
 
     // MARK: - Ink
 
-    static let ink = Color.adaptive(light: 0x0B0D10, dark: 0xF4F6F8)
-    static let inkMuted = Color.adaptive(light: 0x6E7683, dark: 0x8B93A1)
-    static let inkFaint = Color.adaptive(light: 0x9AA1AC, dark: 0x656C78)
-
-    /// Ink on top of an accent-filled surface.
-    static let inkInverse = Color.adaptive(light: 0xFFFFFF, dark: 0xFFFFFF)
+    static var ink: Color { color(\.ink) }
+    static var inkMuted: Color { color(\.inkMuted) }
+    static var inkFaint: Color { color(\.inkFaint) }
+    static var inkInverse: Color { color(\.inkInverse) }
 
     // MARK: - Lines
 
-    static let hairline = Color.adaptive(light: 0xE6E8EC, dark: 0x252A32)
+    static var hairline: Color { color(\.hairline) }
 
     // MARK: - Accent
 
-    /// Cobalt. Brand and interaction — the active tab, the primary button, a
-    /// selected state. Never used to colour data.
-    static let accent = Color.adaptive(light: 0x2F5FF0, dark: 0x5B85FF)
-
-    /// A wash of the accent, for selected rows and the hero card.
-    static let accentWash = Color.adaptive(light: 0xE8EEFF, dark: 0x1B2436)
+    static var accent: Color { color(\.accent) }
+    static var accentWash: Color { color(\.accentWash) }
 
     // MARK: - Money
 
-    /// Money arriving.
-    static let inflow = Color.adaptive(light: 0x0FA47A, dark: 0x34D9A4)
+    static var inflow: Color { color(\.inflow) }
 
     /// A balance genuinely in deficit. Never ordinary spending — colouring every
     /// expense red turns a normal month into a wall of alarm.
-    static let deficit = Color.adaptive(light: 0xE0443E, dark: 0xFF6B63)
+    static var deficit: Color { color(\.deficit) }
 
     // MARK: - State
 
-    /// Confirmed against a statement.
-    static let cleared = Color.adaptive(light: 0x0FA47A, dark: 0x34D9A4)
+    /// Confirmed against a statement. Shares the inflow colour deliberately:
+    /// both mean "this has settled".
+    static var cleared: Color { color(\.inflow) }
 
     /// Recorded, not yet seen on a statement.
-    static let pending = Color.adaptive(light: 0xC77A0A, dark: 0xF0A741)
-}
+    static var pending: Color { color(\.pending) }
 
-// MARK: - Adaptive colour
+    // MARK: - Resolution
 
-private extension Color {
-    /// Builds a colour with an explicit value for each appearance.
-    static func adaptive(light: UInt32, dark: UInt32) -> Color {
+    private static func color(_ slot: KeyPath<ThemePalette, UInt32>) -> Color {
         Color(
             UIColor { traits in
-                UIColor(rgb: traits.userInterfaceStyle == .dark ? dark : light)
+                UIColor(rgb: current.palette(for: traits.userInterfaceStyle)[keyPath: slot])
             }
         )
     }
 }
 
-private extension UIColor {
+extension UIColor {
     convenience init(rgb: UInt32) {
         self.init(
             red: CGFloat((rgb >> 16) & 0xFF) / 255,

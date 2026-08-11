@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct AccountantAppApp: App {
     @StateObject private var appState: AppState
+    @StateObject private var themeManager = ThemeManager()
 
     init() {
         _appState = StateObject(
@@ -18,6 +19,7 @@ struct AccountantAppApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .environmentObject(themeManager)
                 .task {
                     await appState.loadIfNeeded()
                 }
