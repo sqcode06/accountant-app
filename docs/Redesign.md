@@ -43,7 +43,7 @@ rewriting ~177 test fixtures for no additional correctness today.
 
 ## Status
 
-### Done — Phase 1, core (verified, 145 tests passing)
+### Done — core (verified, 181 tests passing)
 
 - `Account.currency`, `sortOrder`, `symbolName`, `colorToken`.
 - `Posting.cleared`, orthogonal to `Transaction.state`:
@@ -53,9 +53,13 @@ rewriting ~177 test fixtures for no additional correctness today.
   works on finalized transactions because clearing is a statement fact, not an edit.
 - `accountBalanceSummaries` rewritten O(A·T) → O(T+P), single pass.
 - CSV parsing collects per-row errors instead of aborting the batch.
+- **Budgets**: `BudgetPeriod`, `BudgetTarget`, `BudgetReport`. Monthly category
+  targets, deliberately outside `Ledger` — an intention is not an accounting fact.
+- **Batch confirmation**: `finalizeTransactions(ids:)`, atomic, backing the
+  end-of-day review.
 - Schema v4.
 
-Three real defects fixed, not just design work:
+Four real defects fixed, not just design work:
 
 1. **Money vanished.** A posting in the wrong currency was accepted by the ledger,
    then filtered out of every balance query. No error, no trace.
@@ -65,44 +69,38 @@ Three real defects fixed, not just design work:
    `TransactionFingerprint` compared whole `Posting` values, so once `cleared` was
    added, reconciling on one device made the same transaction read as a sync
    *conflict*. Under `.preferIncoming` that silently overwrote a completed
-   reconciliation. The fingerprint now compares only account, currency, amount.
+   reconciliation.
+4. **A `Double` round-trip in the capture keypad**, caught in self-review. Money
+   arithmetic is exact `Decimal` throughout now.
 
-### Done — Phase 1.5, app foundation (builds and runs; not yet reviewed in depth)
+### Done — app (builds unverified beyond AccountDetailView)
 
-- `DesignSystem/` — `Theme`, `Metrics`, `Typography`, `MoneyText`.
-- `AccountDetailView` + `AccountDetailSnapshot`. Accounts now navigate here instead
-  of opening a rename sheet. Swipe a row to clear it.
-- Account editor sets currency for balance-bearing kinds.
+- `DesignSystem/` — modern premium fintech. Bold tightly-tracked tabular figures;
+  explicit hex per appearance rather than system semantic colours; elevation on
+  dark from lighter surfaces, not shadows. Two earlier passes were discarded:
+  system-native read stock iOS, editorial private-bank read old-world.
+- **Capture → review loop.** `QuickEntryView` (two gestures, minor-unit entry,
+  usage-ordered categories) writes drafts; `ReviewView` confirms them as a batch.
+  The draft/finalized lifecycle stopped being exposed machinery and became the
+  product.
+- **Budget UI** — limits, bars, month stepping, unbudgeted spending surfaced.
+- **IA**: four tabs — Overview, Budget, Activity, Settings. Import moved behind a
+  menu and Settings; Reconcile moved into the account it belongs to.
+- `AccountDetailView`, `TransactionDetailView`, `AccountReconcileView`.
 
 ### Next
 
-**Phase 2 — information architecture.** Five tabs → three:
-
-| Tab | Contains | Replaces |
-|---|---|---|
-| Overview | Net position per currency, tappable account list | Summary + Accounts |
-| Activity | All transactions, searchable, tappable | Transactions |
-| Settings | Display prefs, classification rules, import entry | — |
-
-- Import stops being a tab. It becomes `.fileImporter` plus a sheet flow. The
-  paste-CSV `TextEditor` survives only as a debug affordance.
-- Reconcile stops being a tab and moves into `AccountDetailView`, where you already
-  are when holding a statement. (A placeholder comment marks the spot.)
-- New: `TransactionDetailView` — `updateDraftTransaction` and
-  `deleteDraftTransaction` exist in the core and are still unreachable from the UI.
-
-**Phase 3 — design system adoption.** Dashboard, transaction list and import still
-use the old per-screen gradients and ad-hoc radii.
-
-**Phase 4 — language.** Equity/Clearing behind Advanced. `draft` → "Pending",
-`finalized` → "Posted" in UI only. Rewrite developer copy shipped as UI, e.g.
-"Raw ledger groups, with income shown as positive for readability". Replace the
-single global alert with inline errors — but keep `AppError.swift`, whose
-case-by-case mapping is the best-written part of the app layer.
-
-**Phase 5 — state.** Cache the dashboard snapshot instead of recomputing in `body`.
-Coalesce saves (~500ms); every mutation currently rewrites the whole JSON file. Add
-undo for draft edits and deletes.
+- Decompose `ImportPreviewScreen` (1,079 lines, 14 view structs) into a sheet flow
+  with a real `.fileImporter`. Pasting CSV into a `TextEditor` is still the only
+  way to get a statement in.
+- Language pass: Equity/Clearing behind an Advanced disclosure; replace the single
+  global alert with inline errors — but keep `AppError.swift`, whose case-by-case
+  mapping is the best-written part of the app layer.
+- State: cache snapshots instead of recomputing in `body`; coalesce saves (~500ms —
+  every mutation currently rewrites the whole JSON file); add undo.
+- Optional, unresolved: a daily reminder to review. Deliberately not built — a
+  notification permission prompt is a big ask for something the in-app prompts on
+  Overview and Activity already do.
 
 ## Dev loop
 
