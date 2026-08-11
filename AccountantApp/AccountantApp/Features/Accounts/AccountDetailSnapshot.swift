@@ -3,9 +3,8 @@ import AccountantCore
 
 /// Everything the account detail screen needs, computed once.
 ///
-/// Follows the same shape as `DashboardSnapshot` and `ReconciliationSnapshot`:
-/// derive a plain value from the ledger, then let the view render it without
-/// touching query APIs during `body`.
+/// Derives a plain value from the ledger up front so the view can render it
+/// without touching query APIs during `body`.
 struct AccountDetailSnapshot: Equatable {
 
     struct Entry: Identifiable, Equatable {

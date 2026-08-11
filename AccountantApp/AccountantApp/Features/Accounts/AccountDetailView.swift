@@ -39,9 +39,14 @@ struct AccountDetailView: View {
                             Label("Edit account", systemImage: "pencil")
                         }
 
-                        // Reconcile moves in here once ReconciliationView is
-                        // refactored to take an account (Phase 2). Deliberately
-                        // absent rather than present and inert.
+                        if isReconcilable {
+                            NavigationLink {
+                                AccountReconcileView(accountID: accountID)
+                                    .environmentObject(appState)
+                            } label: {
+                                Label("Reconcile", systemImage: "checkmark.circle")
+                            }
+                        }
 
                         Divider()
 
@@ -148,6 +153,12 @@ struct AccountDetailView: View {
             account: account,
             currency: appState.currency(for: account)
         )
+    }
+
+    /// Only balance-bearing accounts have statements to reconcile against.
+    private var isReconcilable: Bool {
+        guard let account else { return false }
+        return account.status == .active && (account.kind == .asset || account.kind == .liability)
     }
 }
 

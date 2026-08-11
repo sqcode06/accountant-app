@@ -28,7 +28,7 @@ struct OverviewView: View {
                     Button {
                         isPresentingEntry = true
                     } label: {
-                        Label("New transaction", systemImage: "plus")
+                        Label("Income or transfer", systemImage: "arrow.left.arrow.right")
                     }
 
                     Button {
@@ -68,6 +68,32 @@ struct OverviewView: View {
 
     private var content: some View {
         List {
+            // A timely nudge costs nothing and needs no notification permission.
+            if !appState.draftTransactions.isEmpty {
+                Section {
+                    NavigationLink {
+                        ReviewView()
+                            .environmentObject(appState)
+                    } label: {
+                        HStack(spacing: Metrics.Space.m) {
+                            Image(systemName: "tray.full")
+                                .foregroundStyle(Theme.accent)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(reviewPromptTitle)
+                                    .font(.uiRowTitle)
+                                    .foregroundStyle(Theme.ink)
+
+                                Text("Check what you captured, then confirm")
+                                    .font(.uiCaption)
+                                    .foregroundStyle(Theme.inkMuted)
+                            }
+                        }
+                        .padding(.vertical, Metrics.Space.xs)
+                    }
+                }
+            }
+
             ForEach(snapshot.groups) { group in
                 Section {
                     NetPositionRow(group: group)
@@ -132,6 +158,11 @@ struct OverviewView: View {
         snapshot.groups.count > 1
             ? "Net position · \(group.currency.code)"
             : "Net position"
+    }
+
+    private var reviewPromptTitle: String {
+        let count = appState.draftTransactions.count
+        return count == 1 ? "1 entry to review" : "\(count) entries to review"
     }
 
     private var snapshot: OverviewSnapshot {

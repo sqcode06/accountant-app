@@ -5,10 +5,12 @@ struct AccountantAppApp: App {
     @StateObject private var appState: AppState
 
     init() {
-        let repository = LocalJSONLedgerRepository.live()
-        let classificationRuleRepository = LocalJSONClassificationRuleRepository.live()
         _appState = StateObject(
-            wrappedValue: AppState(repository: repository, classificationRuleRepository: classificationRuleRepository)
+            wrappedValue: AppState(
+                repository: LocalJSONLedgerRepository.live(),
+                classificationRuleRepository: LocalJSONClassificationRuleRepository.live(),
+                budgetRepository: LocalJSONBudgetRepository.live()
+            )
         )
     }
 

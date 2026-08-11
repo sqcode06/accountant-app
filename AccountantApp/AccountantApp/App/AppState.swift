@@ -6,21 +6,26 @@ final class AppState: ObservableObject {
     @Published private(set) var ledger: Ledger
     @Published private(set) var isLoading: Bool
     @Published private(set) var classificationRules: [ClassificationRuleConfiguration]
+    @Published private(set) var budget: Budget
     @Published var lastError: AppError?
 
     private let repository: LedgerRepository
     private let classificationRuleRepository: ClassificationRuleRepository
+    private let budgetRepository: BudgetRepository
     private var didAttemptInitialLoad = false
 
     init(
         repository: LedgerRepository,
-        classificationRuleRepository: ClassificationRuleRepository = EmptyClassificationRuleRepository()
+        classificationRuleRepository: ClassificationRuleRepository = EmptyClassificationRuleRepository(),
+        budgetRepository: BudgetRepository = EmptyBudgetRepository()
     ) {
         self.repository = repository
         self.classificationRuleRepository = classificationRuleRepository
+        self.budgetRepository = budgetRepository
         self.ledger = Ledger()
         self.isLoading = false
         self.classificationRules = []
+        self.budget = Budget()
         self.lastError = nil
     }
 
@@ -44,6 +49,16 @@ final class AppState: ObservableObject {
             classificationRules = try await classificationRuleRepository.loadOrCreate()
         } catch {
             classificationRules = []
+
+            if loadingError == nil {
+                loadingError = error
+            }
+        }
+
+        do {
+            budget = try await budgetRepository.loadOrCreate()
+        } catch {
+            budget = Budget()
 
             if loadingError == nil {
                 loadingError = error
@@ -267,6 +282,51 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Entries captured but not yet reviewed, oldest first.
+    var draftTransactions: [AccountantCore.Transaction] {
+        ledger.draftTransactions()
+    }
+
+    /// Confirms a reviewed batch. All or nothing — see `Ledger.finalizeTransactions`.
+    @discardableResult
+    func confirmTransactions(ids: [TransactionID]) async -> Bool {
+        guard !ids.isEmpty else { return true }
+
+        return await mutateAndSave { ledger in
+            try ledger.finalizeTransactions(ids: ids)
+        }
+    }
+
+    /// Moves a draft to a different category — the fix review exists for.
+    ///
+    /// The expense account IDs are read *before* the mutation closure runs.
+    /// Reading `ledger` inside a closure that is mutating it would be an
+    /// exclusivity violation.
+    @discardableResult
+    func recategorizeDraft(id: TransactionID, to categoryID: AccountID) async -> Bool {
+        let expenseAccountIDs = Set(
+            ledger.accounts.values
+                .filter { $0.kind == .expense }
+                .map(\.id)
+        )
+
+        return await mutateAndSave { ledger in
+            try ledger.updateDraftTransaction(id: id) { transaction in
+                transaction.postings = transaction.postings.map { posting in
+                    guard expenseAccountIDs.contains(posting.accountID) else {
+                        return posting
+                    }
+
+                    return Posting(
+                        accountID: categoryID,
+                        money: posting.money,
+                        cleared: posting.cleared
+                    )
+                }
+            }
+        }
+    }
+
     /// Records whether the bank has confirmed a transaction against one account.
     ///
     /// Works on finalized transactions by design — clearing is a statement fact,
@@ -279,6 +339,68 @@ final class AppState: ObservableObject {
     ) async -> Bool {
         await mutateAndSave { ledger in
             try ledger.setCleared(cleared, forAccount: accountID, in: transactionID)
+        }
+    }
+
+    // MARK: - Budget
+
+    /// Sets a monthly limit for a category, effective from `period` onward.
+    @discardableResult
+    func setBudgetTarget(
+        amount: Money,
+        for categoryID: AccountID,
+        from period: BudgetPeriod
+    ) async -> Bool {
+        var updated = budget
+
+        do {
+            try updated.setTarget(
+                amount: amount,
+                for: categoryID,
+                from: period,
+                in: ledger
+            )
+        } catch {
+            lastError = AppError(error)
+            return false
+        }
+
+        return await saveBudget(updated)
+    }
+
+    /// Stops budgeting a category from `period` onward, leaving history intact.
+    @discardableResult
+    func removeBudgetTarget(
+        for categoryID: AccountID,
+        from period: BudgetPeriod
+    ) async -> Bool {
+        var updated = budget
+        updated.removeTarget(for: categoryID, from: period)
+
+        return await saveBudget(updated)
+    }
+
+    func budgetReport(
+        for period: BudgetPeriod,
+        currency: Currency? = nil
+    ) -> BudgetReport {
+        ledger.budgetReport(
+            budget: budget,
+            period: period,
+            currency: currency ?? displayCurrency
+        )
+    }
+
+    @discardableResult
+    private func saveBudget(_ updated: Budget) async -> Bool {
+        do {
+            try await budgetRepository.save(updated)
+            budget = updated
+            lastError = nil
+            return true
+        } catch {
+            lastError = AppError(error)
+            return false
         }
     }
 
