@@ -69,25 +69,30 @@ public enum BankLineParseError: Error, Equatable, Sendable {
 }
 
 public struct CSVBankLineParser: BankLineParser {
-    public struct Columns: Equatable, Sendable {
+    public struct Columns: Hashable, Sendable {
         public var date: String
         public var amount: String
         public var currency: String
         public var description: String
         public var externalID: String?
 
+        /// A separately listed charge, when the bank has one.
+        public var fee: String?
+
         public init(
             date: String = "date",
             amount: String = "amount",
             currency: String = "currency",
             description: String = "description",
-            externalID: String? = "external_id"
+            externalID: String? = "external_id",
+            fee: String? = nil
         ) {
             self.date = date
             self.amount = amount
             self.currency = currency
             self.description = description
             self.externalID = externalID
+            self.fee = fee
         }
     }
 
@@ -95,17 +100,26 @@ public struct CSVBankLineParser: BankLineParser {
     public var columns: Columns
     public var delimiter: Character
     public var dateFormats: [String]
+    public var sign: SignConvention
+    public var rowFilters: [RowFilter]
+    public var shortRows: ShortRowHandling
 
     public init(
         source: String,
         columns: Columns = Columns(),
         delimiter: Character = ",",
-        dateFormats: [String] = ["yyyy-MM-dd"]
+        dateFormats: [String] = ["yyyy-MM-dd"],
+        sign: SignConvention = .signedAmount,
+        rowFilters: [RowFilter] = [],
+        shortRows: ShortRowHandling = .reject
     ) {
         self.source = source
         self.columns = columns
         self.delimiter = delimiter
         self.dateFormats = dateFormats
+        self.sign = sign
+        self.rowFilters = rowFilters
+        self.shortRows = shortRows
     }
 
     public func parseLines(_ text: String) throws -> BankLineParseResult {
@@ -128,22 +142,46 @@ public struct CSVBankLineParser: BankLineParser {
         let currencyColumn = try requiredColumn(columns.currency, in: headerIndex)
         let descriptionColumn = try requiredColumn(columns.description, in: headerIndex)
         let externalIDColumn = columns.externalID.flatMap { headerIndex[normalizedHeader($0)] }
+        let feeColumn = columns.fee.flatMap { headerIndex[normalizedHeader($0)] }
         let dateParsers = makeDateParsers()
+
+        // A missing sign column is a whole-file problem, not a per-row one: every
+        // row would come out with the wrong direction.
+        let signColumn: Int?
+        if case let .indicatorColumn(name, _, _) = sign {
+            signColumn = try requiredColumn(name, in: headerIndex)
+        } else {
+            signColumn = nil
+        }
+
+        let filters = try rowFilters.map { filter -> (index: Int, filter: RowFilter) in
+            (try requiredColumn(filter.column, in: headerIndex), filter)
+        }
 
         var lines: [BankLine] = []
         var rowErrors: [BankLineRowError] = []
 
         for row in rows.dropFirst() {
             do {
+                let padded = try normalizedRow(row, headerFieldCount: header.fields.count)
+
+                // Structural rows — opening balances, turnover totals, pending
+                // entries — are skipped silently. They are not failures; they are
+                // simply not transactions.
+                guard filters.allSatisfy({ $0.filter.allows(value(in: padded, at: $0.index)) }) else {
+                    continue
+                }
+
                 lines.append(
                     try parseRow(
-                        row,
-                        headerFieldCount: header.fields.count,
+                        padded,
                         dateColumn: dateColumn,
                         amountColumn: amountColumn,
                         currencyColumn: currencyColumn,
                         descriptionColumn: descriptionColumn,
                         externalIDColumn: externalIDColumn,
+                        feeColumn: feeColumn,
+                        signColumn: signColumn,
                         dateParsers: dateParsers
                     )
                 )
@@ -157,22 +195,15 @@ public struct CSVBankLineParser: BankLineParser {
 
     private func parseRow(
         _ row: ParsedCSVRow,
-        headerFieldCount: Int,
         dateColumn: Int,
         amountColumn: Int,
         currencyColumn: Int,
         descriptionColumn: Int,
         externalIDColumn: Int?,
+        feeColumn: Int?,
+        signColumn: Int?,
         dateParsers: [(format: String, formatter: DateFormatter)]
     ) throws -> BankLine {
-        guard row.fields.count == headerFieldCount else {
-            throw BankLineParseError.rowColumnCountMismatch(
-                row: row.rowNumber,
-                expected: headerFieldCount,
-                actual: row.fields.count
-            )
-        }
-
         let dateText = try requiredValue(in: row, column: dateColumn, name: columns.date)
         let amountText = try requiredValue(in: row, column: amountColumn, name: columns.amount)
         let currencyText = try requiredValue(in: row, column: currencyColumn, name: columns.currency)
@@ -185,16 +216,97 @@ public struct CSVBankLineParser: BankLineParser {
             column: columns.date,
             parsers: dateParsers
         )
-        let amount = try parseAmount(amountText, row: row.rowNumber, column: columns.amount)
+        let rawAmount = try parseAmount(amountText, row: row.rowNumber, column: columns.amount)
         let currency = try parseCurrency(currencyText, row: row.rowNumber, column: columns.currency)
+
+        let amount = try signedAmount(
+            rawAmount,
+            row: row,
+            signColumn: signColumn
+        )
+
+        let fee = feeColumn
+            .map { value(in: row, at: $0) }
+            .flatMap { $0.isEmpty ? nil : DecimalParsing.decimal(from: $0) }
+            .map { $0 < .zero ? -$0 : $0 }
 
         return BankLine(
             date: date,
             amount: amount,
             currency: currency,
             description: descriptionText,
-            externalID: externalIDText
+            externalID: externalIDText,
+            fee: (fee ?? .zero) == .zero ? nil : fee
         )
+    }
+
+    /// Applies the direction the statement declares.
+    ///
+    /// The magnitude is taken from the amount and the sign from the convention, so
+    /// an export that both signs its amounts *and* carries an indicator column
+    /// cannot end up double-negated.
+    private func signedAmount(
+        _ amount: Decimal,
+        row: ParsedCSVRow,
+        signColumn: Int?
+    ) throws -> Decimal {
+        let magnitude = amount < .zero ? -amount : amount
+
+        switch sign {
+        case .signedAmount:
+            return amount
+
+        case .alwaysDebit:
+            return -magnitude
+
+        case let .indicatorColumn(name, debitValues, creditValues):
+            guard let signColumn else { return amount }
+
+            let raw = value(in: row, at: signColumn)
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+
+            if debitValues.contains(where: { $0.uppercased() == normalized }) {
+                return -magnitude
+            }
+
+            if creditValues.contains(where: { $0.uppercased() == normalized }) {
+                return magnitude
+            }
+
+            throw BankLineParseError.missingRequiredValue(row: row.rowNumber, column: name)
+        }
+    }
+
+    /// Brings a row up to the header's field count, or rejects it.
+    ///
+    /// Rejecting is the default because a genuinely missing field shifts every
+    /// column after it, so values would be read from the wrong places without any
+    /// obvious symptom. Padding is opt-in for exports that simply omit trailing
+    /// empty columns — and a row shifted by a missing middle field still tends to
+    /// fail on its own merits, since the date will not parse as a date.
+    private func normalizedRow(_ row: ParsedCSVRow, headerFieldCount: Int) throws -> ParsedCSVRow {
+        if row.fields.count == headerFieldCount { return row }
+
+        guard shortRows == .padWithEmptyFields, row.fields.count < headerFieldCount else {
+            throw BankLineParseError.rowColumnCountMismatch(
+                row: row.rowNumber,
+                expected: headerFieldCount,
+                actual: row.fields.count
+            )
+        }
+
+        return ParsedCSVRow(
+            rowNumber: row.rowNumber,
+            fields: row.fields + Array(
+                repeating: "",
+                count: headerFieldCount - row.fields.count
+            )
+        )
+    }
+
+    private func value(in row: ParsedCSVRow, at index: Int) -> String {
+        guard row.fields.indices.contains(index) else { return "" }
+        return row.fields[index].trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func requiredColumn(_ name: String, in headerIndex: [String: Int]) throws -> Int {
