@@ -253,12 +253,10 @@ public struct CSVBankLineParser: BankLineParser {
     }
 
     private func parseAmount(_ value: String, row: Int, column: String) throws -> Decimal {
-        let normalized = value
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "\u{00A0}", with: "")
-            .replacingOccurrences(of: ",", with: ".")
-
-        guard let amount = Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX")) else {
+        // Shared with the rest of the app: statements arrive in whichever
+        // convention the bank uses, and this one previously turned "1.234,56"
+        // into "1.234.56", which failed outright.
+        guard let amount = DecimalParsing.decimal(from: value) else {
             throw BankLineParseError.invalidAmount(row: row, column: column, value: value)
         }
 

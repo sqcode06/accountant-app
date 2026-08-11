@@ -71,3 +71,6 @@ fastlane/test_output
 
 # Private product/commercial material — never commit to a public repo
 docs/product-assessment/
+
+# Bank statement samples — real financial data, never commit
+samples/

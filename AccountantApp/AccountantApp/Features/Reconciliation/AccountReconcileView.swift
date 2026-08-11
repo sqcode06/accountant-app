@@ -137,14 +137,7 @@ struct AccountReconcileView: View {
     }
 
     private var statementAmount: Decimal? {
-        let normalised = statementText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: ",", with: ".")
-
-        guard !normalised.isEmpty else { return nil }
-
-        return Decimal(string: normalised, locale: Locale(identifier: "en_US_POSIX"))
+        DecimalParsing.decimal(from: statementText)
     }
 
     private func endOfDay(_ date: Date) -> Date {
