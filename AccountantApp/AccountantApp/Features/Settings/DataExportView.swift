@@ -10,8 +10,9 @@ import AccountantCore
 ///
 /// Three files rather than one, because they answer different questions. The CSVs
 /// are for reading — a spreadsheet, an accountant, your own arithmetic. The JSON
-/// is the backup: it is byte-for-byte what this app writes, so it is the one that
-/// could be restored.
+/// is the backup: ledger, budget limits and import rules together, which is what
+/// it takes to put the app back the way it was. A backup holding only the ledger
+/// would restore your transactions and none of your plan.
 struct DataExportView: View {
     @EnvironmentObject private var appState: AppState
 
@@ -44,14 +45,14 @@ struct DataExportView: View {
                 Section {
                     exportRow(
                         title: "Full backup",
-                        detail: "JSON",
+                        detail: bundle.backupDetail,
                         systemImage: "arrow.down.doc",
                         url: bundle.backup
                     )
                 } header: {
                     Text("Backup")
                 } footer: {
-                    Text("Everything, in the format this app reads. Keep a copy somewhere that is not this phone.")
+                    Text("Your transactions, budget limits and import rules in one file, in the format this app reads. Keep a copy somewhere that is not this phone.")
                 }
             } else if let failure {
                 Section {
@@ -121,6 +122,8 @@ struct DataExportView: View {
         bundle = nil
 
         let ledger = appState.ledger
+        let budget = appState.budget
+        let rules = appState.classificationRules
         let timeZone = TimeZone.current
         let stamp = ExportBundle.stamp(for: Date())
 
@@ -128,7 +131,13 @@ struct DataExportView: View {
             // Off the main actor: a long history means a lot of string building,
             // and this screen should not stutter on open.
             bundle = try await Task.detached(priority: .userInitiated) {
-                try ExportBundle.write(ledger: ledger, timeZone: timeZone, stamp: stamp)
+                try ExportBundle.write(
+                    ledger: ledger,
+                    budget: budget,
+                    classificationRules: rules,
+                    timeZone: timeZone,
+                    stamp: stamp
+                )
             }.value
         } catch {
             failure = error.localizedDescription
@@ -146,6 +155,7 @@ struct ExportBundle: Sendable {
     let backup: URL
     let postingCount: Int
     let accountCount: Int
+    let backupDetail: String
 
     /// UTF-8 with a byte-order mark.
     ///
@@ -165,7 +175,13 @@ struct ExportBundle: Sendable {
         return formatter.string(from: date)
     }
 
-    static func write(ledger: Ledger, timeZone: TimeZone, stamp: String) throws -> ExportBundle {
+    static func write(
+        ledger: Ledger,
+        budget: Budget,
+        classificationRules: [ClassificationRuleConfiguration],
+        timeZone: TimeZone,
+        stamp: String
+    ) throws -> ExportBundle {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("Export-\(UUID().uuidString)", isDirectory: true)
 
@@ -187,9 +203,15 @@ struct ExportBundle: Sendable {
         try utf8WithBOM(transactionsCSV).write(to: transactionsURL, options: [.atomic])
         try utf8WithBOM(accountsCSV).write(to: accountsURL, options: [.atomic])
 
-        // Encoded by the store itself, so the backup is exactly what a restore
-        // would read — same schema version, same date strategy.
-        let backupData = try JSONLedgerStore(fileURL: backupURL).encoded(ledger)
+        // All three stores in one document. The core owns the format so that a
+        // backup and the files it restores cannot drift apart.
+        let backupData = try LedgerBackupCoder.encode(
+            LedgerBackup(
+                ledger: ledger,
+                budget: budget,
+                classificationRules: classificationRules
+            )
+        )
         try backupData.write(to: backupURL, options: [.atomic])
 
         return ExportBundle(
@@ -197,7 +219,8 @@ struct ExportBundle: Sendable {
             accounts: accountsURL,
             backup: backupURL,
             postingCount: ledger.transactions.reduce(0) { $0 + $1.postings.count },
-            accountCount: ledger.accounts.count
+            accountCount: ledger.accounts.count,
+            backupDetail: "\(ledger.transactions.count) transactions · \(budget.targets.count) limits · \(classificationRules.count) rules"
         )
     }
 }

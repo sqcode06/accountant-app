@@ -1,15 +1,20 @@
 import Foundation
-import AccountantCore
 
-struct ClassificationRuleConfiguration: Identifiable, Codable, Equatable, Sendable {
-    let id: UUID
-    var name: String
-    var needle: String
-    var counterpartyAccountID: AccountID?
-    var cleanedMemo: String?
-    var isEnabled: Bool
+/// A classification rule in the form it is stored and edited in.
+///
+/// Lives in the core rather than the app because it is entirely domain: it holds
+/// no view state, depends on nothing above this module, and — the reason it
+/// moved — it is a third of what the app's saved state consists of. A backup that
+/// could not describe it was not a backup of the app.
+public struct ClassificationRuleConfiguration: Identifiable, Codable, Equatable, Sendable {
+    public let id: UUID
+    public var name: String
+    public var needle: String
+    public var counterpartyAccountID: AccountID?
+    public var cleanedMemo: String?
+    public var isEnabled: Bool
 
-    init(
+    public init(
         id: UUID = UUID(),
         name: String? = nil,
         needle: String,
@@ -38,7 +43,7 @@ struct ClassificationRuleConfiguration: Identifiable, Codable, Equatable, Sendab
         case isEnabled
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         let id = try container.decode(UUID.self, forKey: .id)
@@ -58,11 +63,11 @@ struct ClassificationRuleConfiguration: Identifiable, Codable, Equatable, Sendab
         )
     }
 
-    var displayName: String {
+    public var displayName: String {
         name.isEmpty ? needle : name
     }
 
-    func makeRule() -> DescriptionContainsRule? {
+    public func makeRule() -> DescriptionContainsRule? {
         let cleanedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedMemo = Self.normalizedOptionalText(cleanedMemo)
 
@@ -81,7 +86,7 @@ struct ClassificationRuleConfiguration: Identifiable, Codable, Equatable, Sendab
         )
     }
 
-    static func makeClassifier(from configurations: [ClassificationRuleConfiguration]) -> TransactionClassifier {
+    public static func makeClassifier(from configurations: [ClassificationRuleConfiguration]) -> TransactionClassifier {
         let rules: [any ClassificationRule] = configurations.compactMap { configuration in
             guard let rule = configuration.makeRule() else {
                 return nil
@@ -99,7 +104,7 @@ struct ClassificationRuleConfiguration: Identifiable, Codable, Equatable, Sendab
     }
 }
 
-extension Array where Element == ClassificationRuleConfiguration {
+public extension Array where Element == ClassificationRuleConfiguration {
     var enabledRuleCount: Int {
         filter { $0.makeRule() != nil }.count
     }

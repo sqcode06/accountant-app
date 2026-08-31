@@ -49,48 +49,11 @@ public struct JSONLedgerStore: LedgerStore {
 
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-
-        enc.dateEncodingStrategy = .custom { date, encoder in
-            var c = encoder.singleValueContainer()
-            let bits = date.timeIntervalSince1970.bitPattern
-            // Store as hex string (JSON-safe, exact, platform-independent)
-            try c.encode(String(bits, radix: 16))
-        }
+        LedgerDateCoding.apply(to: enc)
         self.encoder = enc
 
         let dec = JSONDecoder()
-
-        // Decode from either:
-        // 1) New format: hex string bitPattern
-        // 2) Double seconds (new format)
-        // 2) ISO8601 string (old format, for backward compat)
-        dec.dateDecodingStrategy = .custom { decoder in
-            let c = try decoder.singleValueContainer()
-
-            // New format: hex string bitPattern
-            if let s = try? c.decode(String.self),
-            let bits = UInt64(s, radix: 16) {
-                return Date(timeIntervalSince1970: Double(bitPattern: bits))
-            }
-
-            // Older format you used: JSON number
-            if let t = try? c.decode(Double.self) {
-                return Date(timeIntervalSince1970: t)
-            }
-
-            // Even older: ISO8601 string fallback
-            let s = try c.decode(String.self)
-
-            let isoFrac = ISO8601DateFormatter()
-            isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let d = isoFrac.date(from: s) { return d }
-
-            let isoNoFrac = ISO8601DateFormatter()
-            isoNoFrac.formatOptions = [.withInternetDateTime]
-            if let d = isoNoFrac.date(from: s) { return d }
-
-            throw DecodingError.dataCorruptedError(in: c, debugDescription: "Invalid date value: \(s)")
-        }
+        LedgerDateCoding.apply(to: dec)
         self.decoder = dec
     }
 
@@ -124,16 +87,6 @@ public struct JSONLedgerStore: LedgerStore {
                 FileQuarantine.move(fileURL, reason: String(describing: error))
             )
         }
-    }
-
-    /// The exact bytes this store would write for `ledger`.
-    ///
-    /// Exposed so a backup can be handed to the user as a file. Producing it here
-    /// rather than re-encoding elsewhere is the point: the schema version and the
-    /// date strategy live in this type, and a backup written with any other
-    /// encoding would be one this app cannot read back.
-    public func encoded(_ ledger: Ledger) throws -> Data {
-        try encoder.encode(PersistedLedger(ledger: ledger))
     }
 
     public func save(_ ledger: Ledger) throws {

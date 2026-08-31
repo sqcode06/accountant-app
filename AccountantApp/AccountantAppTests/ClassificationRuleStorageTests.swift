@@ -3,61 +3,13 @@ import Foundation
 import AccountantCore
 @testable import AccountantApp
 
-struct ClassificationRuleConfigurationTests {
-
-    @Test func configurationBuildsDescriptionContainsRule() throws {
-        let fixture = ClassificationFixture()
-        let configuration = ClassificationRuleConfiguration(
-            needle: "  rimi  ",
-            counterpartyAccountID: fixture.groceries.id,
-            cleanedMemo: "  Rimi  "
-        )
-
-        let classifier = ClassificationRuleConfiguration.makeClassifier(from: [configuration])
-        let line = fixture.line(description: "RIMI EESTI")
-        let preview = fixture.pipeline.previewImport(
-            lines: [line],
-            into: fixture.ledger,
-            classifier: classifier,
-            now: fixture.now
-        )
-
-        guard case .proposed(_, let draft, _) = preview.outcomes.first else {
-            Issue.record("Expected classified line to stay proposed")
-            return
-        }
-
-        #expect(draft.memo == "Rimi")
-        #expect(draft.postings[1].accountID == fixture.groceries.id)
-    }
-
-    @Test func disabledOrEmptyConfigurationsAreIgnored() throws {
-        let fixture = ClassificationFixture()
-        let disabled = ClassificationRuleConfiguration(
-            needle: "rimi",
-            counterpartyAccountID: fixture.groceries.id,
-            cleanedMemo: "Rimi",
-            isEnabled: false
-        )
-        let noEffect = ClassificationRuleConfiguration(needle: "rimi")
-
-        let classifier = ClassificationRuleConfiguration.makeClassifier(from: [disabled, noEffect])
-        let line = fixture.line(description: "RIMI EESTI")
-        let preview = fixture.pipeline.previewImport(
-            lines: [line],
-            into: fixture.ledger,
-            classifier: classifier,
-            now: fixture.now
-        )
-
-        guard case .proposed(_, let draft, _) = preview.outcomes.first else {
-            Issue.record("Expected neutral line to stay proposed")
-            return
-        }
-
-        #expect(draft.memo == line.description)
-        #expect(draft.postings[1].accountID == fixture.uncategorized.id)
-    }
+/// The app layer around classification rules: loading them into AppState,
+/// creating them, and persisting them.
+///
+/// The rule type itself moved into the core, and its behaviour is tested there.
+/// What is left here is the part that genuinely belongs to the app — AppState and
+/// the on-disk repository.
+struct ClassificationRuleStorageTests {
 
     @MainActor
     @Test func appStateLoadsClassificationRules() async throws {
@@ -142,28 +94,6 @@ struct ClassificationRuleConfigurationTests {
         #expect(loaded == [rule])
 
         try? FileManager.default.removeItem(at: fileURL)
-    }
-    
-    @Test func classificationRuleConfigurationDecodingNormalizesPersistedText() throws {
-        let id = UUID()
-        let json = """
-        {
-          "id": "\(id.uuidString)",
-          "name": "   ",
-          "needle": "  RIMI  ",
-          "cleanedMemo": "  Groceries  ",
-          "isEnabled": true
-        }
-        """
-
-        let data = try #require(json.data(using: .utf8))
-        let rule = try JSONDecoder().decode(ClassificationRuleConfiguration.self, from: data)
-
-        #expect(rule.id == id)
-        #expect(rule.name == "Groceries")
-        #expect(rule.needle == "RIMI")
-        #expect(rule.cleanedMemo == "Groceries")
-        #expect(rule.isEnabled)
     }
 }
 

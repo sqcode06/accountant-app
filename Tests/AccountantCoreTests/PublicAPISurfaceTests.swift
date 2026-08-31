@@ -165,13 +165,22 @@ final class PublicAPISurfaceTests: XCTestCase {
         let accounts: String = LedgerExport.accountsCSV(from: ledger, includeDrafts: true)
         XCTAssertTrue(accounts.contains("Groceries"))
 
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let backup = LedgerBackup(
+            ledger: ledger,
+            budget: Budget(),
+            classificationRules: [
+                ClassificationRuleConfiguration(needle: "RIMI", counterpartyAccountID: groceries.id)
+            ]
+        )
 
-        let store = JSONLedgerStore(fileURL: directory.appendingPathComponent("ledger.json"))
-        let backup: Data = try store.encoded(ledger)
-        XCTAssertFalse(backup.isEmpty)
+        let data: Data = try LedgerBackupCoder.encode(backup)
+        let restored: LedgerBackup = try LedgerBackupCoder.decode(data)
+        XCTAssertEqual(restored.ledger.accounts.count, 2)
+
+        let summary: LedgerBackupSummary = try LedgerBackupCoder.summarize(data)
+        XCTAssertEqual(summary.transactionCount, 1)
+        XCTAssertEqual(summary.classificationRuleCount, 1)
+
+        XCTAssertEqual(LedgerBackupError.unreadable, LedgerBackupError.unreadable)
     }
 }
