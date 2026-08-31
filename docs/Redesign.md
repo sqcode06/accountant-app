@@ -43,7 +43,7 @@ rewriting ~177 test fixtures for no additional correctness today.
 
 ## Status
 
-### Done — core (verified, 181 tests passing)
+### Done — core (verified, 270 XCTest + 3 Swift Testing tests passing)
 
 - `Account.currency`, `sortOrder`, `symbolName`, `colorToken`.
 - `Posting.cleared`, orthogonal to `Transaction.state`:
@@ -58,6 +58,17 @@ rewriting ~177 test fixtures for no additional correctness today.
 - **Batch confirmation**: `finalizeTransactions(ids:)`, atomic, backing the
   end-of-day review.
 - Schema v4.
+- **Statement parsing for real exports**: `DecimalParsing` (decimal commas,
+  grouping, trailing minus, accounting parentheses), `StatementFormat` with sign
+  conventions and structural-row filters, presets for Swedbank, LHV and Revolut.
+- **Bank fees as a third posting** on the same transaction rather than a fabricated
+  second one.
+- **Quarantine on unreadable file** — renamed aside before the load returns, so the
+  data survives even if every layer above misbehaves.
+- **Export and backup**: `LedgerExport` (CSV) and `LedgerBackup` (ledger + budget +
+  rules in one restorable document), sharing the store's date strategy.
+- `ClassificationRuleConfiguration` moved down from the app target — it is pure
+  domain, and the core could not otherwise describe a third of the app's own state.
 
 Four real defects fixed, not just design work:
 
@@ -73,7 +84,7 @@ Four real defects fixed, not just design work:
 4. **A `Double` round-trip in the capture keypad**, caught in self-review. Money
    arithmetic is exact `Decimal` throughout now.
 
-### Done — app (builds unverified beyond AccountDetailView)
+### Done — app
 
 - `DesignSystem/` — modern premium fintech. Bold tightly-tracked tabular figures;
   explicit hex per appearance rather than system semantic colours; elevation on
@@ -87,20 +98,40 @@ Four real defects fixed, not just design work:
 - **IA**: four tabs — Overview, Budget, Activity, Settings. Import moved behind a
   menu and Settings; Reconcile moved into the account it belongs to.
 - `AccountDetailView`, `TransactionDetailView`, `AccountReconcileView`.
+- **Import rewritten** as a three-step sheet — bank preset, accounts, review — over
+  a real `.fileImporter`, replacing the 1,079-line paste-a-CSV screen.
+- **Six themes and matching alternate app icons**, onboarding guide, danger zone.
+- **Export and restore screens** in Settings.
+- Undo for a deleted draft; themed transaction editor; Equity and Clearing behind
+  an Advanced disclosure.
 
 ### Next
 
-- Decompose `ImportPreviewScreen` (1,079 lines, 14 view structs) into a sheet flow
-  with a real `.fileImporter`. Pasting CSV into a `TextEditor` is still the only
-  way to get a statement in.
-- Language pass: Equity/Clearing behind an Advanced disclosure; replace the single
-  global alert with inline errors — but keep `AppError.swift`, whose case-by-case
-  mapping is the best-written part of the app layer.
-- State: cache snapshots instead of recomputing in `body`; coalesce saves (~500ms —
-  every mutation currently rewrites the whole JSON file); add undo.
-- Optional, unresolved: a daily reminder to review. Deliberately not built — a
-  notification permission prompt is a big ask for something the in-app prompts on
-  Overview and Activity already do.
+- **A clean LHV export.** The preset's column names are a guess from a sample whose
+  columns were shifted by copy-paste; every row was correctly rejected. Swedbank
+  and Revolut are verified against real files.
+- **Review reminders.** Still the open question from the original plan. Capture is
+  deliberately careless because the evening review catches it, but nothing prompts
+  the review except opening the app. The argument against has not changed — a
+  notification permission prompt is a big ask for something the Overview banner
+  already does — and the argument for is that the banner only works if you open the
+  app, which is exactly what someone avoiding their budget does not do.
+- **Sync.** The merge stack is written and tested and nothing calls it. Missing: a
+  transport and conflict UX.
+- Inline errors instead of the single global alert — but keep `AppError.swift`,
+  whose case-by-case mapping is the best-written part of the app layer.
+- Recurring transactions. Charts, last.
+
+### Resolved since
+
+- Snapshots are computed once per render and threaded down, rather than
+  recomputed on every reference — Budget was building its full report sixteen
+  times per render.
+- Writes commit in memory first and are debounced behind that, which closed a
+  lost-update window and stopped a reconciliation costing one whole-file rewrite
+  per tick.
+- Undo exists for the one destructive action reachable from a bare swipe.
+- Export and backup exist, and a backup can be restored.
 
 ## Dev loop
 
@@ -121,7 +152,7 @@ tar xzf swift.tar.gz
 export PATH="$PWD/swift-6.2-RELEASE-debian12/usr/bin:$PATH"
 ```
 
-App, macOS only: open `Accountant.xcworkspace`, `Cmd+R`.
+App, macOS only: open `Accountant.xcworkspace` (or `AccountantApp/AccountantApp.xcodeproj` — the workspace only wraps that project, so they are equivalent), then `Cmd+R`.
 
 The clone directory **must** be named `accountant-app` — the Xcode project
 references the package by relative path (`../../accountant-app`).

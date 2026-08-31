@@ -1,33 +1,42 @@
-# AccountantCore
+# Accountant
 
-AccountantCore is the accounting engine for a future personal budgeting app. The planned app may eventually have an iOS interface, Liquid Glass polish, import screens, reconciliation tools, and all the pleasant dashboard furniture. This package is the quieter thing underneath it: a small, testable Swift domain core that knows how money moves.
+A personal budgeting app for iOS, and the accounting engine underneath it.
 
-It is intentionally UI-free. No SwiftUI views. No bank API assumptions. No platform-specific persistence. Just accounts, transactions, imports, classification, reconciliation, summaries, and a ledger that tries very hard not to let nonsense through the door.
+Two things live in this repository:
+
+- **`Sources/AccountantCore`** — a UI-free Swift package that knows how money moves. No SwiftUI, no bank APIs, no platform persistence. It builds and tests on Linux, which is what makes the fast development loop possible.
+- **`AccountantApp/`** — the iOS app. SwiftUI, six themes, quick capture, an evening review queue, budgets, statement import, reconciliation, export and restore.
+
+The split is deliberate and load-bearing. Every accounting rule is in the package and covered by tests that run in under a second on any machine; the app target holds views and app state and nothing that decides what a balance means.
 
 ## Status
 
-Core MVP: **feature-complete enough to power a first local budgeting app prototype**.
+The app builds and runs. It is usable day to day and is not yet something to put on the App Store.
 
-Current core capabilities:
+**Working:**
 
-- account taxonomy: assets, liabilities, income, expenses, equity, clearing;
-- draft/finalized transaction lifecycle;
-- same-currency double-entry transaction validation;
-- manual transaction convenience constructors;
-- JSON persistence with schema versioning;
-- query layer for balances, statements, account summaries, and kind summaries;
-- bank-line import preview and atomic apply;
-- deterministic rule-based classification;
-- classified import preview;
-- finalized snapshot merge foundation;
-- account reconciliation;
-- an end-to-end MVP workflow test.
+- four-tab structure: Overview, Activity, Budget, Settings, with a capture button in the middle;
+- quick capture — type an amount, tap a category, two gestures, everything lands as a draft;
+- an evening review queue where drafts get checked and confirmed as a batch;
+- budgets: monthly limits per category, with unbudgeted spending shown rather than hidden;
+- statement import from a file, with presets for Swedbank, LHV and Revolut;
+- deterministic classification rules applied at import;
+- reconciliation against a statement balance, by ticking entries off;
+- six themes and matching alternate app icons;
+- an onboarding guide, a danger zone, and per-account currency;
+- CSV export and a complete backup that can be restored.
 
-The next major work should be app integration, documentation refinement, and UX-facing workflows, not more hidden core features.
+**Not there yet:**
 
-App architecture notes for the future iOS layer live in [`docs/AppArchitecture.md`](docs/AppArchitecture.md).
+- multi-device sync. The merge primitives exist and are tested, but nothing in the app calls them — see [Merge and sync foundation](#merge-and-sync-foundation);
+- review reminders. The nudge is a banner on Overview; there are no notifications;
+- currency conversion. Amounts are never converted, anywhere, on purpose;
+- recurring transactions;
+- charts.
 
-App testing notes for the iOS layer live in [`docs/AppTesting.md`](docs/AppTesting.md).
+**Verified how:** the core has 270 XCTest plus 3 Swift Testing tests, all runnable on Linux. The app target's tests need Xcode. See [`docs/AppTesting.md`](docs/AppTesting.md).
+
+Architecture notes for the app layer: [`docs/AppArchitecture.md`](docs/AppArchitecture.md). Redesign working notes: [`docs/Redesign.md`](docs/Redesign.md). Voice and palette: [`docs/Brand.md`](docs/Brand.md).
 
 ## Mental model
 
@@ -84,7 +93,9 @@ Money does not appear from fog. It moves.
 swift test
 ```
 
-This is a Swift Package Manager project. The package defines the `AccountantCore` library target and the `AccountantCoreTests` test target.
+This is a Swift Package Manager project. The package defines the `AccountantCore` library target and the `AccountantCoreTests` test target. It has no dependencies and builds on Linux, so the core loop needs nothing but a toolchain.
+
+The iOS app is separate. Open `AccountantApp/AccountantApp.xcodeproj` and run it from Xcode. The project uses Xcode 16 synchronized file groups, so new source files are picked up without editing the project file.
 
 A typical development loop is:
 
@@ -438,7 +449,7 @@ Important properties:
 - merge mutates a working copy and commits only at the end;
 - merge reports added, skipped, updated, and conflicting items.
 
-This is not full sync UX yet. It is the core merge primitive future sync can build on.
+**Nothing in the app calls any of this.** The merge stack is written, tested and unreachable — it was built for multi-device sync that has no transport behind it yet. Worth knowing before reading it as a working feature, and worth keeping, because the hard part of sync is the conflict rules and those are done.
 
 ## Persistence
 
@@ -453,24 +464,43 @@ Current persistence is intentionally simple:
 
 This is good enough for the core MVP and early app prototypes. SQLite, CloudKit, or other storage layers can be added later without changing the accounting model.
 
+An unreadable file is **quarantined rather than overwritten**: it is renamed aside before the load returns, and the app refuses every write until the user chooses to start fresh or retry. That path is the one that used to silently destroy data, so it is tested from both ends.
+
+`LedgerBackup` is the export format — ledger, budget and classification rules in one document, with its own format version separate from the ledger schema version. `LedgerExport` writes the same data as CSV for spreadsheets. Both share the store's date strategy, because a backup written with a different encoding is one this app cannot read back.
+
 ## Repository structure
 
 ```text
 Sources/AccountantCore
+├── Budget
+│   ├── Budget.swift
+│   ├── BudgetPeriod.swift
+│   └── BudgetReport.swift
+│
 ├── Classification
 │   ├── ClassificationError.swift
 │   ├── ClassificationRule.swift
+│   ├── ClassificationRuleConfiguration.swift
 │   ├── ClassificationSuggestion.swift
 │   ├── DescriptionContainsRule.swift
 │   └── TransactionClassifier.swift
 │
+├── Export
+│   ├── LedgerBackup.swift
+│   └── LedgerExport.swift
+│
 ├── Import
 │   ├── BankLine.swift
+│   ├── CSVBankLineParser.swift
 │   ├── ImportClassification.swift
 │   ├── ImportPipeline.swift
-│   └── ImportSession.swift
+│   ├── ImportSession.swift
+│   └── StatementFormat.swift
 │
 ├── Persistence
+│   ├── FileQuarantine.swift
+│   ├── JSONFileStore.swift
+│   ├── LedgerDateCoding.swift
 │   ├── LedgerStore.swift
 │   └── PersistedLedger.swift
 │
@@ -486,12 +516,13 @@ Sources/AccountantCore
 │   ├── LedgerMergeError.swift
 │   └── TransactionFingerprint.swift
 │
+├── AccountantCore.swift
 ├── Currency.swift
+├── DecimalParsing.swift
 ├── Ledger.swift
 ├── LedgerError.swift
 ├── Models.swift
 ├── Money.swift
-├── Money+Ops.swift
 └── TransactionCreation.swift
 ```
 
@@ -521,6 +552,8 @@ verify account and category balances
 
 Account summary behavior is covered separately by `AccountSummaryTests`, where filtering, archived-account handling, deterministic ordering, and kind totals are easier to check precisely.
 
+`PublicAPISurfaceTests` is worth knowing about. Every other test file uses `@testable import`, which sees `internal` symbols — so a missing `public` is invisible in the package and fatal in the app, where the whole suite passes and then Xcode reports "cannot find type X in scope". That one file imports the module the way the app does. Add to it whenever the app starts using new core API.
+
 ## Development philosophy
 
 This project is being built test-first where possible.
@@ -545,91 +578,17 @@ Things we care about:
 - UI-free core logic;
 - readable tests that document intent.
 
-## Current MVP scope
+## What to work on next
 
-The core MVP supports:
+In rough order of how much it matters:
 
-- manually creating draft expense, income, and transfer transactions;
-- validating and finalizing transactions;
-- managing accounts and archiving old accounts;
-- importing bank-like lines into draft transactions;
-- classifying imported drafts using deterministic rules;
-- applying import previews safely;
-- querying balances and statements;
-- summarizing accounts and account kinds;
-- reconciling balances against external statement values;
-- persisting ledgers to JSON;
-- merging finalized snapshots.
+1. **A clean LHV export.** The LHV preset's column names are a guess made from a copy-pasted sample whose columns were shifted, and every row was correctly rejected. Swedbank and Revolut are verified against real files.
+2. **Review reminders.** Capture is deliberately careless because the evening review is meant to catch it — but nothing reminds you to do the review except opening the app.
+3. **Sync.** The merge rules are done and tested. What is missing is a transport and the UX around conflicts.
+4. **Recurring transactions.** Rent and subscriptions are the entries most worth not typing every month.
+5. **Charts.** Deliberately last. A budget app earns trust by being right before it earns attention by being pretty.
 
-This is enough to start building a first local app prototype.
-
-## Not implemented yet
-
-These are intentionally outside the current core MVP:
-
-- iOS app UI;
-- account setup wizard;
-- import review screen;
-- reconciliation screen;
-- classification rule editor;
-- bank CSV parser zoo;
-- OCR receipts;
-- automatic bank API integration;
-- learned/adaptive classification;
-- machine-learning suggestions;
-- recurring transactions;
-- budgeting/envelope planning;
-- multi-currency conversion transactions;
-- CloudKit or multi-device sync UX;
-- SQLite persistence;
-- charts and dashboard presentation logic.
-
-## Future roadmap parking lot
-
-These should later become GitHub Project issues or cards.
-
-### Import
-
-- Bank statement format parsers.
-- Import preview highlighting and correction tools.
-- Better duplicate review UX.
-- Statement-line source metadata.
-- Batch finalization from import review.
-
-### Classification
-
-- Rule editor in the app.
-- Merchant normalization.
-- Learned rules from user corrections.
-- Confidence and explanation display.
-- Optional semantic or ML-based suggestions later.
-
-### Reconciliation
-
-- Cleared/uncleared transaction state.
-- Statement line matching.
-- Difference investigation tools.
-- Highlight likely missing or duplicate transactions.
-- Reconciliation history.
-
-### Multi-currency
-
-- Explicit conversion transaction type.
-- Stored effective rate metadata.
-- Optional fee handling.
-- Reporting in native and selected display currencies.
-- No silent auto-conversion inside ordinary transactions.
-
-### App layer
-
-- SwiftUI app skeleton.
-- Local store wiring.
-- Account setup flow.
-- Manual transaction entry.
-- Import review screen.
-- Summary dashboard.
-- Reconciliation screen.
-- Liquid Glass visual design.
+Longer-term and deliberately not started: OCR receipts, bank API integration, learned classification, multi-currency conversion, SQLite.
 
 ## Design warning for future work
 
