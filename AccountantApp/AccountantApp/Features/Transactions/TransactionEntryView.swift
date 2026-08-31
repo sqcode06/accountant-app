@@ -1,10 +1,18 @@
 import SwiftUI
 import AccountantCore
 
+/// The full editor: expense, income or transfer, with both sides chosen by hand.
+///
+/// Quick capture handles the common case in two gestures; this is the screen for
+/// everything else — income, moving money between accounts, backdating, or naming
+/// a category the strip does not show.
+///
+/// Two save actions rather than one, because the draft/confirmed split is the whole
+/// point of the app. "Save for review" puts it in the evening queue; "Save & confirm"
+/// is for when you are already certain and do not want to see it again.
 struct TransactionEntryView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
-
 
     @State private var selectedKind: TransactionEntryKind = .expense
     @State private var amountText = ""
@@ -12,32 +20,22 @@ struct TransactionEntryView: View {
     @State private var memo = ""
     @State private var primaryAccountID: AccountID?
     @State private var counterpartAccountID: AccountID?
+    @State private var isSaving = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    headerCard
-                    kindPickerCard
+                VStack(alignment: .leading, spacing: Metrics.Space.l) {
+                    kindCard
                     amountCard
                     accountCard
                     detailCard
-                    readinessCard
+                    readinessHint
                     actionButtons
                 }
-                .padding()
+                .padding(Metrics.Space.l)
             }
-            .background {
-                LinearGradient(
-                    colors: [
-                        selectedKind.tint.opacity(0.16),
-                        Color(.systemBackground)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-            }
+            .background(Theme.canvas)
             .navigationTitle("New transaction")
             .appErrorAlert()
             .navigationBarTitleDisplayMode(.inline)
@@ -57,64 +55,67 @@ struct TransactionEntryView: View {
         }
     }
 
-    private var headerCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(selectedKind.title, systemImage: selectedKind.systemImageName)
-                .font(.headline)
-                .foregroundStyle(selectedKind.tint)
+    // MARK: - Type
 
-            Text("Record a draft now, then finalize immediately if you are sure it is correct.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    private var kindPickerCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Type")
-                .font(.headline)
-
-            Picker("Type", selection: $selectedKind) {
+    /// The type switcher doubles as the card header. A separate header card would
+    /// have restated the selected type immediately above the control that sets it.
+    private var kindCard: some View {
+        VStack(alignment: .leading, spacing: Metrics.Space.m) {
+            HStack(spacing: Metrics.Space.xs) {
                 ForEach(TransactionEntryKind.allCases) { kind in
-                    Text(kind.title).tag(kind)
+                    KindTab(
+                        title: kind.title,
+                        isSelected: kind == selectedKind
+                    ) {
+                        selectedKind = kind
+                    }
                 }
             }
-            .pickerStyle(.segmented)
+            .padding(Metrics.Space.xs)
+            .background(
+                Theme.surfaceSunken,
+                in: RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
+            )
+
+            Label(selectedKind.summary, systemImage: selectedKind.systemImageName)
+                .font(.uiCaption)
+                .foregroundStyle(Theme.inkMuted)
         }
-        .transactionFormCard()
+        .card()
     }
 
+    // MARK: - Amount
+
     private var amountCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Metrics.Space.s) {
             HStack {
                 Text("Amount")
-                    .font(.headline)
+                    .fieldLabel()
 
                 Spacer()
 
                 Text(entryCurrency.code)
-                    .font(.caption.bold())
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.thinMaterial, in: Capsule())
+                    .fieldLabel(Theme.accent)
+                    .padding(.horizontal, Metrics.Space.s)
+                    .padding(.vertical, Metrics.Space.xs)
+                    .background(Theme.accentWash, in: Capsule())
             }
 
             TextField("0.00", text: $amountText)
                 .keyboardType(.decimalPad)
-                .font(.system(size: 38, weight: .bold, design: .rounded))
-                .monospacedDigit()
+                .font(.figureHero)
+                .foregroundStyle(Theme.ink)
+                .tint(Theme.accent)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
         }
-        .transactionFormCard()
+        .card()
     }
 
-    private var accountCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Accounts")
-                .font(.headline)
+    // MARK: - Accounts
 
+    private var accountCard: some View {
+        VStack(alignment: .leading, spacing: Metrics.Space.l) {
             accountPicker(
                 title: selectedKind.primaryAccountTitle,
                 accounts: primaryAccounts,
@@ -127,60 +128,7 @@ struct TransactionEntryView: View {
                 selection: $counterpartAccountID
             )
         }
-        .transactionFormCard()
-    }
-
-    private var detailCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Details")
-                .font(.headline)
-
-            DatePicker("Date", selection: $date, displayedComponents: .date)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Memo")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                TextField(selectedKind.memoPlaceholder, text: $memo)
-                    .textInputAutocapitalization(.sentences)
-            }
-        }
-        .transactionFormCard()
-    }
-
-    @ViewBuilder
-    private var readinessCard: some View {
-        if let readinessMessage {
-            Label(readinessMessage, systemImage: "info.circle")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-    }
-
-    private var actionButtons: some View {
-        VStack(spacing: 10) {
-            Button {
-                Task { await save(finalize: false) }
-            } label: {
-                Label("Save Draft", systemImage: "tray.and.arrow.down")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!isReadyToSave)
-
-            Button {
-                Task { await save(finalize: true) }
-            } label: {
-                Label("Save & Finalize", systemImage: "checkmark.seal.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!isReadyToSave)
-        }
+        .card()
     }
 
     private func accountPicker(
@@ -188,22 +136,148 @@ struct TransactionEntryView: View {
         accounts: [Account],
         selection: Binding<AccountID?>
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Metrics.Space.s) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .fieldLabel()
 
-            Picker(title, selection: selection) {
-                Text("Select account").tag(AccountID?.none)
+            Menu {
+                Picker(title, selection: selection) {
+                    Text("Select account").tag(AccountID?.none)
 
-                ForEach(accounts, id: \.id) { account in
-                    Text("\(account.name) · \(account.kind.displayName)")
-                        .tag(Optional(account.id))
+                    ForEach(accounts, id: \.id) { account in
+                        Text("\(account.name) · \(account.kind.displayName)")
+                            .tag(Optional(account.id))
+                    }
                 }
+            } label: {
+                HStack(spacing: Metrics.Space.s) {
+                    Text(name(of: selection.wrappedValue, in: accounts) ?? "Select account")
+                        .font(.uiRowTitle)
+                        .foregroundStyle(selection.wrappedValue == nil ? Theme.inkFaint : Theme.ink)
+                        .lineLimit(1)
+
+                    Spacer(minLength: Metrics.Space.s)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.inkFaint)
+                }
+                .padding(.horizontal, Metrics.Space.m)
+                .frame(height: 44)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Theme.surfaceSunken,
+                    in: RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
+                )
             }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(accounts.isEmpty)
         }
+    }
+
+    // MARK: - Details
+
+    private var detailCard: some View {
+        VStack(alignment: .leading, spacing: Metrics.Space.l) {
+            HStack {
+                Text("Date")
+                    .fieldLabel()
+
+                Spacer()
+
+                DatePicker("Date", selection: $date, displayedComponents: .date)
+                    .labelsHidden()
+                    .tint(Theme.accent)
+            }
+
+            VStack(alignment: .leading, spacing: Metrics.Space.s) {
+                Text("Memo")
+                    .fieldLabel()
+
+                TextField(selectedKind.memoPlaceholder, text: $memo)
+                    .textInputAutocapitalization(.sentences)
+                    .font(.uiBody)
+                    .foregroundStyle(Theme.ink)
+                    .tint(Theme.accent)
+                    .padding(.horizontal, Metrics.Space.m)
+                    .frame(height: 44)
+                    .background(
+                        Theme.surfaceSunken,
+                        in: RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
+                    )
+            }
+        }
+        .card()
+    }
+
+    // MARK: - Readiness
+
+    /// A hint, not a card. It appears and disappears as fields are filled, and
+    /// giving it card weight made the layout jump every time it did.
+    @ViewBuilder
+    private var readinessHint: some View {
+        if let readinessMessage {
+            Label(readinessMessage, systemImage: "info.circle")
+                .font(.uiCaption)
+                .foregroundStyle(Theme.inkMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Metrics.Space.xs)
+        }
+    }
+
+    // MARK: - Actions
+
+    private var actionButtons: some View {
+        VStack(spacing: Metrics.Space.s) {
+            Button {
+                Task { await save(finalize: true) }
+            } label: {
+                HStack(spacing: Metrics.Space.s) {
+                    if isSaving {
+                        ProgressView().tint(Theme.inkInverse)
+                    } else {
+                        Image(systemName: "checkmark")
+                    }
+
+                    Text("Save & confirm")
+                }
+                .font(.system(.body, weight: .semibold))
+                .foregroundStyle(Theme.inkInverse)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(
+                    Theme.accent,
+                    in: RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(!isReadyToSave || isSaving)
+            .opacity(isReadyToSave && !isSaving ? 1 : 0.4)
+
+            Button {
+                Task { await save(finalize: false) }
+            } label: {
+                Text("Save for review")
+                    .font(.system(.body, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(
+                        Theme.surfaceSunken,
+                        in: RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!isReadyToSave || isSaving)
+            .opacity(isReadyToSave && !isSaving ? 1 : 0.4)
+        }
+        .animation(.easeOut(duration: 0.15), value: isReadyToSave)
+    }
+
+    // MARK: - Derived state
+
+    private func name(of id: AccountID?, in accounts: [Account]) -> String? {
+        guard let id else { return nil }
+        return accounts.first { $0.id == id }?.name
     }
 
     /// The currency of the account the money moves through.
@@ -243,12 +317,13 @@ struct TransactionEntryView: View {
         activeAccounts(matching: selectedKind.counterpartAccountKinds)
     }
 
+    /// Parsed by the same code that reads bank statements.
+    ///
+    /// The old hand-rolled version swapped commas for dots and handed the result to
+    /// `Decimal(string:)`, which reads "EUR" and "--" as zero rather than failing.
+    /// That was masked here by the `> 0` check below, but only by luck.
     private var enteredAmount: Decimal? {
-        let normalized = amountText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: ",", with: ".")
-
-        return Decimal(string: normalized)
+        DecimalParsing.decimal(from: amountText)
     }
 
     private var parsedAmount: Decimal? {
@@ -322,6 +397,8 @@ struct TransactionEntryView: View {
         }
     }
 
+    // MARK: - Save
+
     private func save(finalize: Bool) async {
         guard
             let amount = parsedAmount,
@@ -330,6 +407,9 @@ struct TransactionEntryView: View {
         else {
             return
         }
+
+        isSaving = true
+        defer { isSaving = false }
 
         let money = Money(amount, currency: entryCurrency)
         let success: Bool
@@ -397,11 +477,37 @@ struct TransactionEntryView: View {
     }
 }
 
-private extension View {
-    func transactionFormCard() -> some View {
-        frame(maxWidth: .infinity, alignment: .leading)
-            .padding(18)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+// MARK: - Type switcher
+
+/// A themed segmented control.
+///
+/// `.pickerStyle(.segmented)` is a `UISegmentedControl`, and its track fill and
+/// unselected text colour come from UIKit rather than from the palette — so on any
+/// theme but the default it visibly did not belong to the screen behind it. The
+/// only way to move those is a global `UISegmentedControl.appearance()`, which
+/// fights the runtime theme switch.
+private struct KindTab: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(.subheadline, weight: .medium))
+                .foregroundStyle(isSelected ? Theme.inkInverse : Theme.inkMuted)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: Metrics.Radius.inset, style: .continuous)
+                            .fill(Theme.accent)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .animation(.snappy(duration: 0.18), value: isSelected)
     }
 }
 
