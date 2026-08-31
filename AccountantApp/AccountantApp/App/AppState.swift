@@ -641,6 +641,39 @@ final class AppState: ObservableObject {
         return lastError == nil
     }
 
+    /// Replaces everything with the contents of a backup.
+    ///
+    /// Deliberately permitted while the data-protection lock is on. A damaged
+    /// store is one of the main reasons anyone restores, and refusing would leave
+    /// the user holding a good backup and no way to use it. The quarantined
+    /// originals stay on disk either way.
+    ///
+    /// Flushed rather than debounced: someone restoring has just been told their
+    /// current data is about to be replaced, and the write should have happened by
+    /// the time they are looking at the result.
+    @discardableResult
+    func restore(from backup: LedgerBackup) async -> Bool {
+        dataProtection = .ok
+
+        ledger = backup.ledger
+        budget = backup.budget
+        classificationRules = backup.classificationRules
+        lastError = nil
+
+        // The undo offer points at a transaction from the ledger that was just
+        // replaced. Putting it back would insert a stranger into the restored data.
+        dismissUndo()
+
+        scheduleFlush {
+            $0.ledger = true
+            $0.budget = true
+            $0.rules = true
+        }
+        await flushPendingWrites()
+
+        return lastError == nil
+    }
+
     /// Erases everything — ledger, budget and import rules.
     ///
     /// Each store is written separately, so a mid-way failure can leave the app

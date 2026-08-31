@@ -74,10 +74,17 @@ struct SettingsView: View {
                 } label: {
                     Label("Export your data", systemImage: "square.and.arrow.up")
                 }
+
+                NavigationLink {
+                    RestoreBackupView()
+                        .environmentObject(appState)
+                } label: {
+                    Label("Restore from a backup", systemImage: "arrow.uturn.backward")
+                }
             } header: {
                 Text("Your data")
             } footer: {
-                Text("Spreadsheet files to read anywhere, and a full backup to keep somewhere safe.")
+                Text("Spreadsheet files to read anywhere, and a full backup to keep somewhere safe — and put back if you ever need to.")
             }
 
             Section {
