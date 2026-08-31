@@ -165,12 +165,33 @@ final class PublicAPISurfaceTests: XCTestCase {
         let accounts: String = LedgerExport.accountsCSV(from: ledger, includeDrafts: true)
         XCTAssertTrue(accounts.contains("Groceries"))
 
+        // Every member the app touches on a rule configuration. This type moved
+        // down from the app target, so its `public` surface is load-bearing in a
+        // way it never had to be before.
+        let rule = ClassificationRuleConfiguration(
+            needle: "RIMI",
+            counterpartyAccountID: groceries.id,
+            cleanedMemo: "Rimi"
+        )
+
+        let ruleID: UUID = rule.id
+        XCTAssertNotEqual(ruleID, UUID())
+        XCTAssertEqual(rule.needle, "RIMI")
+        XCTAssertEqual(rule.counterpartyAccountID, groceries.id)
+        XCTAssertEqual(rule.cleanedMemo, "Rimi")
+        XCTAssertEqual(rule.displayName, "Rimi")
+        XCTAssertTrue(rule.isEnabled)
+        XCTAssertNotNil(rule.makeRule())
+        XCTAssertEqual([rule].enabledRuleCount, 1)
+
+        let classifier: TransactionClassifier = ClassificationRuleConfiguration
+            .makeClassifier(from: [rule])
+        _ = classifier
+
         let backup = LedgerBackup(
             ledger: ledger,
             budget: Budget(),
-            classificationRules: [
-                ClassificationRuleConfiguration(needle: "RIMI", counterpartyAccountID: groceries.id)
-            ]
+            classificationRules: [rule]
         )
 
         let data: Data = try LedgerBackupCoder.encode(backup)
