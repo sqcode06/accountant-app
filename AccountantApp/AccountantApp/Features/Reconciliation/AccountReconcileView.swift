@@ -19,9 +19,11 @@ struct AccountReconcileView: View {
     @State private var asOf = Date()
 
     var body: some View {
-        Group {
+        let report = self.report
+
+        return Group {
             if let account {
-                content(account)
+                content(account, report: report)
             } else {
                 ContentUnavailableView(
                     "Account unavailable",
@@ -34,10 +36,10 @@ struct AccountReconcileView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func content(_ account: Account) -> some View {
+    private func content(_ account: Account, report: ReconciliationReport?) -> some View {
         List {
             Section {
-                statementCard
+                statementCard(report)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -74,7 +76,7 @@ struct AccountReconcileView: View {
         .listStyle(.insetGrouped)
     }
 
-    private var statementCard: some View {
+    private func statementCard(_ report: ReconciliationReport?) -> some View {
         VStack(alignment: .leading, spacing: Metrics.Space.l) {
             VStack(alignment: .leading, spacing: Metrics.Space.xs) {
                 Text("Statement balance")
@@ -126,6 +128,12 @@ struct AccountReconcileView: View {
         appState.ledger.accounts[accountID]
     }
 
+    /// Built once per render.
+    ///
+    /// `reconcileAccount` makes two full passes over the ledger — one to total the
+    /// balance, one to walk the sorted transactions — and both the list and the
+    /// header card needed it, so it ran twice for every keystroke in the statement
+    /// balance field.
     private var report: ReconciliationReport? {
         guard let account, let statementAmount else { return nil }
 

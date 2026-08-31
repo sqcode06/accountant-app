@@ -109,6 +109,7 @@ final class AppState: ObservableObject {
 
         // Write the now-empty state so the app is in a consistent, known place.
         _ = await mutateAndSave { _ in }
+        await flushPendingWrites()
     }
 
     /// Tries the load again — for when the cause was transient, such as the file
@@ -133,18 +134,121 @@ final class AppState: ObservableObject {
         return true
     }
 
-    @discardableResult
-    func save() async -> Bool {
-        do {
-            try await repository.save(ledger)
-            lastError = nil
-            return true
-        } catch {
-            lastError = AppError(error)
-            return false
+    // MARK: - Persistence
+
+    /// What has changed in memory but is not yet on disk.
+    private struct PendingWrites {
+        var ledger = false
+        var budget = false
+        var rules = false
+
+        var isEmpty: Bool { !ledger && !budget && !rules }
+    }
+
+    private var pending = PendingWrites()
+    private var flushTask: Task<Void, Never>?
+    private var isFlushing = false
+    private var wantsAnotherFlush = false
+
+    /// How long a change sits in memory before it is written.
+    ///
+    /// Long enough to absorb a burst — ticking entries off during a reconciliation,
+    /// or a run of category taps — and short enough that nothing meaningful is at
+    /// risk if the app is killed without warning.
+    private static let flushDelay = Duration.milliseconds(400)
+
+    /// Marks state dirty and schedules a coalesced write.
+    private func scheduleFlush(_ mark: (inout PendingWrites) -> Void) {
+        mark(&pending)
+
+        flushTask?.cancel()
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(for: AppState.flushDelay)
+            guard !Task.isCancelled else { return }
+            await self?.flushPendingWrites()
         }
     }
 
+    /// Writes everything that is dirty. Safe to call at any point.
+    ///
+    /// Call it directly when durability matters right now — a destructive action,
+    /// or the app going to the background — rather than waiting out the debounce.
+    func flushPendingWrites() async {
+        flushTask?.cancel()
+        flushTask = nil
+
+        // One writer at a time. Two flushes running concurrently could finish out
+        // of order and leave the *older* snapshot on disk.
+        guard !isFlushing else {
+            wantsAnotherFlush = true
+            return
+        }
+
+        isFlushing = true
+        defer { isFlushing = false }
+
+        repeat {
+            wantsAnotherFlush = false
+            await writeDirtyStores()
+        } while wantsAnotherFlush
+    }
+
+    private func writeDirtyStores() async {
+        guard !pending.isEmpty, !isDataLocked else { return }
+
+        var failure: Error?
+
+        if pending.ledger {
+            pending.ledger = false
+            do {
+                try await repository.save(ledger)
+            } catch {
+                // Stay dirty so the next flush tries again.
+                pending.ledger = true
+                failure = failure ?? error
+            }
+        }
+
+        if pending.budget {
+            pending.budget = false
+            do {
+                try await budgetRepository.save(budget)
+            } catch {
+                pending.budget = true
+                failure = failure ?? error
+            }
+        }
+
+        if pending.rules {
+            pending.rules = false
+            do {
+                try await classificationRuleRepository.save(classificationRules)
+            } catch {
+                pending.rules = true
+                failure = failure ?? error
+            }
+        }
+
+        if let failure {
+            lastError = AppError(failure)
+        }
+    }
+
+    /// Applies a change in memory, then schedules the write.
+    ///
+    /// The order matters, and it is the reverse of what this used to do. Saving
+    /// first and committing afterwards meant a suspension point sat between reading
+    /// `ledger` and writing it back: two swipe actions fired in quick succession
+    /// both read the same ledger, both saved their own copy, and the second silently
+    /// discarded the first one's change. Committing synchronously on the main actor
+    /// closes that window — there is no `await` between the read and the commit, so
+    /// nothing can interleave.
+    ///
+    /// The trade is that a failed write now leaves the change visible on screen
+    /// rather than rolling it back. That is the better failure: the change stays
+    /// marked dirty and is retried, and the error is surfaced either way, whereas
+    /// silently reverting an action the user just took only invites them to repeat
+    /// it into the same failure.
     @discardableResult
     private func mutateAndSave(_ mutate: (inout Ledger) throws -> Void) async -> Bool {
         guard !refuseWriteWhileLocked() else { return false }
@@ -153,14 +257,15 @@ final class AppState: ObservableObject {
 
         do {
             try mutate(&updated)
-            try await repository.save(updated)
-            ledger = updated
-            lastError = nil
-            return true
         } catch {
             lastError = AppError(error)
             return false
         }
+
+        ledger = updated
+        lastError = nil
+        scheduleFlush { $0.ledger = true }
+        return true
     }
 
     /// Creates an account.
@@ -340,14 +445,91 @@ final class AppState: ObservableObject {
 
     @discardableResult
     func deleteDraftTransaction(id: TransactionID) async -> Bool {
-        await mutateAndSave { ledger in
+        // Captured before the delete so it can be offered back.
+        let doomed = ledger.transactions.first { $0.id == id }
+
+        let deleted = await mutateAndSave { ledger in
             try ledger.deleteDraftTransaction(id: id)
         }
+
+        if deleted, let doomed {
+            offerUndo(for: doomed)
+        }
+
+        return deleted
+    }
+
+    // MARK: - Undo
+
+    /// A draft that was just deleted, kept only long enough to offer it back.
+    struct DeletedDraft: Identifiable, Equatable {
+        let transaction: AccountantCore.Transaction
+        var id: TransactionID { transaction.id }
+    }
+
+    /// Deleting a draft is the one destructive action reachable from a single
+    /// swipe with no confirmation.
+    ///
+    /// A confirmation dialog on every swipe would wreck the review flow, which is
+    /// the one part of the app that has to be fast — you are going through a day's
+    /// captures, and a modal between each one turns two minutes into ten. Holding
+    /// the deleted entry for a few seconds covers the same mistake and costs the
+    /// careful user nothing.
+    @Published private(set) var recentlyDeletedDraft: DeletedDraft?
+
+    private var undoExpiryTask: Task<Void, Never>?
+
+    /// Long enough to notice the row vanish and react; short enough that the bar
+    /// is gone before it becomes furniture.
+    private static let undoWindow = Duration.seconds(6)
+
+    private func offerUndo(for transaction: AccountantCore.Transaction) {
+        recentlyDeletedDraft = DeletedDraft(transaction: transaction)
+
+        undoExpiryTask?.cancel()
+        undoExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: AppState.undoWindow)
+            guard !Task.isCancelled else { return }
+            self?.recentlyDeletedDraft = nil
+        }
+    }
+
+    /// Puts the deleted draft back.
+    ///
+    /// This can legitimately fail: if one of the accounts the entry referenced was
+    /// archived in the meantime, the ledger refuses it. That is the guard working,
+    /// and it surfaces as an error rather than a silent no-op.
+    @discardableResult
+    func undoDraftDeletion() async -> Bool {
+        guard let pending = recentlyDeletedDraft else { return false }
+
+        dismissUndo()
+
+        return await mutateAndSave { ledger in
+            try ledger.addTransaction(pending.transaction)
+        }
+    }
+
+    func dismissUndo() {
+        undoExpiryTask?.cancel()
+        undoExpiryTask = nil
+        recentlyDeletedDraft = nil
     }
 
     /// Entries captured but not yet reviewed, oldest first.
     var draftTransactions: [AccountantCore.Transaction] {
         ledger.draftTransactions()
+    }
+
+    /// How many entries are waiting, without building the sorted list to find out.
+    ///
+    /// `draftTransactions()` sorts every transaction in the ledger before filtering.
+    /// Several screens only ever wanted the count for a badge or a row label, and
+    /// were paying for the sort to get it.
+    var draftCount: Int {
+        ledger.transactions.reduce(into: 0) { total, transaction in
+            if transaction.state == .draft { total += 1 }
+        }
     }
 
     /// Confirms a reviewed batch. All or nothing — see `Ledger.finalizeTransactions`.
@@ -444,18 +626,19 @@ final class AppState: ObservableObject {
             updatedBudget.forget(accountID: account.id)
         }
 
-        do {
-            try await repository.save(updatedLedger)
-            try await budgetRepository.save(updatedBudget)
+        ledger = updatedLedger
+        budget = updatedBudget
+        lastError = nil
 
-            ledger = updatedLedger
-            budget = updatedBudget
-            lastError = nil
-            return true
-        } catch {
-            lastError = AppError(error)
-            return false
+        // Both stores are marked dirty before either is written, so a failure part
+        // way through leaves the other still pending rather than silently dropped.
+        scheduleFlush {
+            $0.ledger = true
+            $0.budget = true
         }
+        await flushPendingWrites()
+
+        return lastError == nil
     }
 
     /// Erases everything — ledger, budget and import rules.
@@ -469,35 +652,19 @@ final class AppState: ObservableObject {
         // and the quarantined copies survive it.
         dataProtection = .ok
 
-        var succeeded = true
+        ledger = Ledger()
+        budget = Budget()
+        classificationRules = []
+        lastError = nil
 
-        do {
-            try await repository.save(Ledger())
-            ledger = Ledger()
-        } catch {
-            lastError = AppError(error)
-            succeeded = false
+        scheduleFlush {
+            $0.ledger = true
+            $0.budget = true
+            $0.rules = true
         }
+        await flushPendingWrites()
 
-        do {
-            try await budgetRepository.save(Budget())
-            budget = Budget()
-        } catch {
-            if succeeded { lastError = AppError(error) }
-            succeeded = false
-        }
-
-        do {
-            try await classificationRuleRepository.save([])
-            classificationRules = []
-        } catch {
-            if succeeded { lastError = AppError(error) }
-            succeeded = false
-        }
-
-        if succeeded { lastError = nil }
-
-        return succeeded
+        return lastError == nil
     }
 
     /// Clears every monthly limit, leaving the ledger alone.
@@ -559,15 +726,10 @@ final class AppState: ObservableObject {
     private func saveBudget(_ updated: Budget) async -> Bool {
         guard !refuseWriteWhileLocked() else { return false }
 
-        do {
-            try await budgetRepository.save(updated)
-            budget = updated
-            lastError = nil
-            return true
-        } catch {
-            lastError = AppError(error)
-            return false
-        }
+        budget = updated
+        lastError = nil
+        scheduleFlush { $0.budget = true }
+        return true
     }
 
     /// Currency used where no account dictates one — dashboard roll-ups, mainly.
@@ -594,16 +756,24 @@ final class AppState: ObservableObject {
 
         var updated = ledger
 
+        let report: ImportApplyReport
+
         do {
-            let report = try pipeline.applyImportPreview(preview, to: &updated)
-            try await repository.save(updated)
-            ledger = updated
-            lastError = nil
-            return report
+            report = try pipeline.applyImportPreview(preview, to: &updated)
         } catch {
             lastError = AppError(error)
             return nil
         }
+
+        ledger = updated
+        lastError = nil
+
+        // Flushed rather than debounced: an import is a lot of work to lose, and
+        // the user is already waiting on the result.
+        scheduleFlush { $0.ledger = true }
+        await flushPendingWrites()
+
+        return report
     }
 
     @discardableResult
@@ -672,15 +842,10 @@ final class AppState: ObservableObject {
     private func saveClassificationRules(_ updatedRules: [ClassificationRuleConfiguration]) async -> Bool {
         guard !refuseWriteWhileLocked() else { return false }
 
-        do {
-            try await classificationRuleRepository.save(updatedRules)
-            classificationRules = updatedRules
-            lastError = nil
-            return true
-        } catch {
-            lastError = AppError(error)
-            return false
-        }
+        classificationRules = updatedRules
+        lastError = nil
+        scheduleFlush { $0.rules = true }
+        return true
     }
 
     private func createExpense(

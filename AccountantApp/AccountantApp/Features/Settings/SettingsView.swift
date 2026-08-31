@@ -62,7 +62,7 @@ struct SettingsView: View {
             Section {
                 LabeledContent("Transactions", value: "\(appState.ledger.transactions.count)")
                 LabeledContent("Accounts", value: "\(appState.ledger.accounts.count)")
-                LabeledContent("Awaiting review", value: "\(appState.draftTransactions.count)")
+                LabeledContent("Awaiting review", value: "\(appState.draftCount)")
             } header: {
                 Text("Ledger")
             }

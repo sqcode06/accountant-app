@@ -1,21 +1,55 @@
 import AccountantCore
 
 enum AccountKindCatalog {
-    static let all: [AccountKind] = [
+    /// The four kinds that describe money as people actually think about it.
+    static let everyday: [AccountKind] = [
         .asset,
         .liability,
         .income,
-        .expense,
+        .expense
+    ]
+
+    /// Accounting machinery. Real, occasionally necessary, and meaningless to
+    /// anyone who has not done double-entry bookkeeping before — so it stays
+    /// behind a disclosure rather than sitting in the middle of the list you pick
+    /// from when adding your current account.
+    static let advanced: [AccountKind] = [
         .equity,
         .clearing
     ]
-    
+
+    /// Every kind, in display order. The order is load-bearing: `sortIndex`
+    /// derives account sorting from it.
+    static let all: [AccountKind] = everyday + advanced
+
     static func sortIndex(for kind: AccountKind) -> Int {
         all.firstIndex(of: kind) ?? Int.max
+    }
+
+    static func isAdvanced(_ kind: AccountKind) -> Bool {
+        advanced.contains(kind)
     }
 }
 
 extension AccountKind {
+    /// What this kind means, in the words someone would use themselves.
+    var plainDescription: String {
+        switch self {
+        case .asset:
+            "Money you have — a bank account, cash, savings."
+        case .liability:
+            "Money you owe — a credit card, a loan."
+        case .income:
+            "Where money comes from — salary, refunds."
+        case .expense:
+            "What you spend on — groceries, rent, transport."
+        case .equity:
+            "Opening balances and adjustments that are not real transactions."
+        case .clearing:
+            "A holding place for money in transit between two accounts."
+        }
+    }
+
     var displayName: String {
         switch self {
         case .asset:

@@ -20,8 +20,18 @@ struct QuickEntryView: View {
     @State private var isPresentingAllCategories = false
     @State private var isSaving = false
 
+    /// Category lists are built once per render.
+    ///
+    /// `entry` is `@State`, so every digit tapped on the keypad re-renders this
+    /// whole screen. `frequentCategories` walks every posting in the ledger to rank
+    /// categories by use, and `categories` sorted the account list on each of its
+    /// four references — all of it per keystroke, none of it dependent on the
+    /// amount being typed.
     var body: some View {
-        NavigationStack {
+        let categories = self.categories
+        let frequent = frequentCategories(categories)
+
+        return NavigationStack {
             VStack(spacing: 0) {
                 amountDisplay
 
@@ -30,7 +40,7 @@ struct QuickEntryView: View {
                 if categories.isEmpty {
                     missingCategories
                 } else {
-                    categoryStrip
+                    categoryStrip(categories, frequent: frequent)
                 }
 
                 AmountKeypad(entry: $entry)
@@ -105,16 +115,19 @@ struct QuickEntryView: View {
 
     // MARK: - Categories
 
-    private var categoryStrip: some View {
+    private func categoryStrip(
+        _ categories: [Account],
+        frequent: [Account]
+    ) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Metrics.Space.s) {
-                ForEach(frequentCategories, id: \.id) { category in
+                ForEach(frequent, id: \.id) { category in
                     CategoryChip(name: category.name, isEnabled: canSave) {
                         capture(into: category)
                     }
                 }
 
-                if categories.count > frequentCategories.count {
+                if categories.count > frequent.count {
                     CategoryChip(name: "More", isEnabled: canSave, isSecondary: true) {
                         isPresentingAllCategories = true
                     }
@@ -189,7 +202,7 @@ struct QuickEntryView: View {
 
     /// Categories ordered by how often they are actually used, so the common ones
     /// sit under the thumb. Zero configuration — the ledger already knows.
-    private var frequentCategories: [Account] {
+    private func frequentCategories(_ categories: [Account]) -> [Account] {
         let usage = usageCounts
 
         return categories

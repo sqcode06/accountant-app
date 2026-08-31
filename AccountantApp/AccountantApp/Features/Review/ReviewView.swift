@@ -14,23 +14,34 @@ struct ReviewView: View {
 
     @State private var isConfirming = false
 
+    /// Drafts and categories are built once here.
+    ///
+    /// `drafts` sorts the whole ledger and was read seven times per render;
+    /// `categories` filtered and sorted every account and was read *inside* the
+    /// row loop, so it ran once per draft. Fifty drafts meant fifty sorts of the
+    /// account list to draw one screen.
     var body: some View {
-        Group {
+        let drafts = appState.draftTransactions
+
+        return Group {
             if drafts.isEmpty {
                 allClear
             } else {
-                content
+                content(drafts)
             }
         }
         .navigationTitle("Review")
+        .draftDeletionUndoBar()
     }
 
     // MARK: - Content
 
-    private var content: some View {
-        List {
+    private func content(_ drafts: [AccountantCore.Transaction]) -> some View {
+        let categories = self.categories
+
+        return List {
             Section {
-                summary
+                summary(drafts)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -70,7 +81,7 @@ struct ReviewView: View {
             }
 
             Section {
-                confirmAllButton
+                confirmAllButton(drafts)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             }
@@ -78,14 +89,14 @@ struct ReviewView: View {
         .listStyle(.insetGrouped)
     }
 
-    private var summary: some View {
+    private func summary(_ drafts: [AccountantCore.Transaction]) -> some View {
         VStack(alignment: .leading, spacing: Metrics.Space.m) {
             Text(drafts.count == 1 ? "1 entry to review" : "\(drafts.count) entries to review")
                 .font(.uiTitle)
                 .foregroundStyle(Theme.ink)
 
             HStack(spacing: Metrics.Space.xl) {
-                ForEach(totalsByCurrency, id: \.currency.code) { total in
+                ForEach(totalsByCurrency(drafts), id: \.currency.code) { total in
                     FigureBlock(
                         label: "Total \(total.currency.code)",
                         money: total,
@@ -99,9 +110,9 @@ struct ReviewView: View {
         .padding(.vertical, Metrics.Space.s)
     }
 
-    private var confirmAllButton: some View {
+    private func confirmAllButton(_ drafts: [AccountantCore.Transaction]) -> some View {
         Button {
-            confirmAll()
+            confirmAll(drafts)
         } label: {
             HStack(spacing: Metrics.Space.s) {
                 if isConfirming {
@@ -133,7 +144,12 @@ struct ReviewView: View {
 
     // MARK: - Actions
 
-    private func confirmAll() {
+    /// Confirms exactly the drafts that were on screen.
+    ///
+    /// Taking the rendered list rather than re-reading the ledger means the button
+    /// does what its label promised: "Confirm all 5" confirms those five, even if a
+    /// sixth arrived between the render and the tap.
+    private func confirmAll(_ drafts: [AccountantCore.Transaction]) {
         isConfirming = true
 
         Task {
@@ -150,10 +166,6 @@ struct ReviewView: View {
 
     // MARK: - Derived
 
-    private var drafts: [AccountantCore.Transaction] {
-        appState.draftTransactions
-    }
-
     private var categories: [Account] {
         appState.ledger.accounts.values
             .filter { $0.status == .active && $0.kind == .expense }
@@ -161,7 +173,7 @@ struct ReviewView: View {
     }
 
     /// Grouped by currency — no implicit conversion, here or anywhere.
-    private var totalsByCurrency: [Money] {
+    private func totalsByCurrency(_ drafts: [AccountantCore.Transaction]) -> [Money] {
         var totals: [String: (currency: Currency, amount: Decimal)] = [:]
 
         for transaction in drafts {

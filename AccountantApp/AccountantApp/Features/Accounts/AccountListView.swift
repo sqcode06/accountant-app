@@ -8,12 +8,15 @@ struct AccountListView: View {
     @State private var isPresentingNewAccount = false
 
     var body: some View {
-        Group {
+        let visibleAccounts = self.visibleAccounts
+        let archivedCount = self.archivedCount
+
+        return Group {
             if visibleAccounts.isEmpty {
                 ContentUnavailableView(
                     emptyTitle,
                     systemImage: emptySystemImage,
-                    description: Text(emptyDescription)
+                    description: Text(emptyDescription(archivedCount: archivedCount))
                 )
             } else {
                 List {
@@ -106,7 +109,7 @@ struct AccountListView: View {
         isShowingArchived ? "tray" : "tray.circle"
     }
 
-    private var emptyDescription: String {
+    private func emptyDescription(archivedCount: Int) -> String {
         if isShowingArchived {
             "Create your first account to start shaping the ledger."
         } else if archivedCount > 0 {

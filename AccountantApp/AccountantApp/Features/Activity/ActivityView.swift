@@ -11,32 +11,46 @@ struct ActivityView: View {
 
     @State private var searchText = ""
 
+    /// The filtered list is built once and threaded down.
+    ///
+    /// `transactions` sorts the entire ledger and `drafts` sorts it again; between
+    /// the two of them and `groupedByDay` calling back into `transactions`, drawing
+    /// this screen once cost five full sorts of every transaction on file.
     var body: some View {
-        Group {
-            if transactions.isEmpty && drafts.isEmpty {
+        let transactions = self.transactions
+        let draftCount = appState.draftCount
+
+        return Group {
+            if transactions.isEmpty && draftCount == 0 {
                 emptyState
             } else {
-                content
+                content(transactions, draftCount: draftCount)
             }
         }
         .navigationTitle("Activity")
         .searchable(text: $searchText, prompt: "Search memos")
+        // Deleting from the transaction detail screen pops back to here, so this
+        // is where that undo has to appear.
+        .draftDeletionUndoBar()
     }
 
-    private var content: some View {
+    private func content(
+        _ transactions: [AccountantCore.Transaction],
+        draftCount: Int
+    ) -> some View {
         List {
-            if !drafts.isEmpty && searchText.isEmpty {
+            if draftCount > 0 && searchText.isEmpty {
                 Section {
                     NavigationLink {
                         ReviewView()
                             .environmentObject(appState)
                     } label: {
-                        ReviewPrompt(count: drafts.count)
+                        ReviewPrompt(count: draftCount)
                     }
                 }
             }
 
-            ForEach(groupedByDay, id: \.day) { group in
+            ForEach(groupedByDay(transactions), id: \.day) { group in
                 Section {
                     ForEach(group.transactions, id: \.id) { transaction in
                         NavigationLink {
@@ -67,10 +81,6 @@ struct ActivityView: View {
 
     // MARK: - Derived
 
-    private var drafts: [AccountantCore.Transaction] {
-        appState.draftTransactions
-    }
-
     private var transactions: [AccountantCore.Transaction] {
         let all = appState.ledger.allTransactionsSorted(includeDrafts: true).reversed()
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -90,7 +100,9 @@ struct ActivityView: View {
 
     /// Day headers give a long list rhythm and make "when did I buy that" answerable
     /// by scrolling rather than searching.
-    private var groupedByDay: [(day: String, transactions: [AccountantCore.Transaction])] {
+    private func groupedByDay(
+        _ transactions: [AccountantCore.Transaction]
+    ) -> [(day: String, transactions: [AccountantCore.Transaction])] {
         var order: [String] = []
         var buckets: [String: [AccountantCore.Transaction]] = [:]
 

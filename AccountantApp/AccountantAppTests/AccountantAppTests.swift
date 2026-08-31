@@ -43,6 +43,7 @@ struct AccountantAppTests {
         #expect(success)
         #expect(appState.ledger.accounts.values.first?.name == "Bank")
         #expect(appState.ledger.accounts.values.first?.kind == .asset)
+        await appState.flushPendingWrites()
         #expect(await repository.savedLedgers.count == 1)
         #expect(appState.lastError == nil)
     }
@@ -71,6 +72,7 @@ struct AccountantAppTests {
 
         #expect(success)
         #expect(appState.ledger.accounts[bank.id]?.name == "New Bank")
+        await appState.flushPendingWrites()
         #expect(await repository.savedLedgers.count == 1)
     }
 
@@ -86,21 +88,39 @@ struct AccountantAppTests {
         #expect(archived)
         #expect(appState.ledger.accounts[bank.id]?.status == .archived)
 
+        // Flushed between the two so each write is observed separately. Without
+        // this the writes coalesce into one, which is the point of the debounce —
+        // a burst of edits is a single file write, not one per edit.
+        await appState.flushPendingWrites()
+
         let restored = await appState.restoreAccount(id: bank.id)
         #expect(restored)
         #expect(appState.ledger.accounts[bank.id]?.status == .active)
+
+        await appState.flushPendingWrites()
         #expect(await repository.savedLedgers.count == 2)
+        #expect(await repository.savedLedgers.last?.accounts[bank.id]?.status == .active)
     }
 
+    /// A failed write keeps the change on screen and reports the failure.
+    ///
+    /// This used to assert the opposite — that a save failure rolled the change
+    /// back out of view. That ordering is what allowed writes to be lost: saving
+    /// before committing put a suspension point between reading the ledger and
+    /// writing it back, so two quick actions could each save over the other. The
+    /// change now commits synchronously and the write is retried; reverting an
+    /// action the user just took would not have saved their data either, it would
+    /// only have hidden the fact that nothing was saved.
     @MainActor
-    @Test func failedSaveDoesNotMutateVisibleAccountState() async throws {
+    @Test func failedSaveKeepsAccountVisibleAndReportsFailure() async throws {
         let repository = InMemoryLedgerRepository(saveError: TestRepositoryError.saveFailed)
         let appState = AppState(repository: repository)
 
         let success = await appState.createAccount(name: "Bank", kind: .asset)
+        await appState.flushPendingWrites()
 
-        #expect(!success)
-        #expect(appState.ledger.accounts.isEmpty)
+        #expect(success)
+        #expect(appState.ledger.accounts.values.first?.name == "Bank")
         #expect(await repository.savedLedgers.isEmpty)
         #expect(appState.lastError?.message.isEmpty == false)
     }
@@ -127,6 +147,7 @@ struct AccountantAppTests {
         #expect(transaction?.state == .draft)
         #expect(transaction?.memo == "Rimi")
         #expect(transaction?.postings.count == 2)
+        await appState.flushPendingWrites()
         #expect(await repository.savedLedgers.count == 1)
     }
 
@@ -152,6 +173,7 @@ struct AccountantAppTests {
         #expect(transaction?.state == .finalized)
         #expect(transaction?.finalizedAt != nil)
         #expect(transaction?.memo == "Salary")
+        await appState.flushPendingWrites()
         #expect(await repository.savedLedgers.count == 1)
     }
 
@@ -177,6 +199,7 @@ struct AccountantAppTests {
         #expect(transaction?.state == .draft)
         #expect(transaction?.memo == nil)
         #expect(transaction?.postings.count == 2)
+        await appState.flushPendingWrites()
         #expect(await repository.savedLedgers.count == 1)
     }
 
@@ -204,6 +227,7 @@ struct AccountantAppTests {
         #expect(success)
         #expect(transaction?.state == .finalized)
         #expect(transaction?.finalizedAt != nil)
+        await appState.flushPendingWrites()
         #expect(await repository.savedLedgers.count == 1)
     }
 
@@ -258,6 +282,7 @@ struct AccountantAppTests {
         #expect(report?.skippedOutcomes == 0)
         #expect(transaction?.state == .draft)
         #expect(transaction?.origin == TransactionOrigin(source: "FixtureBank", externalID: "CARD-1"))
+        await appState.flushPendingWrites()
         #expect(await repository.savedLedgers.count == 1)
         #expect(appState.lastError == nil)
     }
@@ -320,8 +345,10 @@ struct AccountantAppTests {
         #expect(appState.lastError?.message == "This transaction is not balanced.")
     }
 
+    /// Same contract as `failedSaveKeepsAccountVisibleAndReportsFailure`, for a
+    /// transaction rather than an account.
     @MainActor
-    @Test func failedSaveDoesNotExposeUnsavedTransaction() async throws {
+    @Test func failedSaveKeepsTransactionVisibleAndReportsFailure() async throws {
         let fixture = TransactionFixture()
         let repository = InMemoryLedgerRepository(
             ledger: fixture.ledger,
@@ -339,10 +366,158 @@ struct AccountantAppTests {
             memo: "Rimi"
         )
 
-        #expect(!success)
-        #expect(appState.ledger.allTransactionsSorted(includeDrafts: true).isEmpty)
+        await appState.flushPendingWrites()
+
+        #expect(success)
+        #expect(appState.ledger.allTransactionsSorted(includeDrafts: true).count == 1)
         #expect(await repository.savedLedgers.isEmpty)
         #expect(appState.lastError?.message.isEmpty == false)
+    }
+
+    // MARK: - Undo
+
+    /// Deleting a draft has to be recoverable: it is reachable from a bare swipe
+    /// in review, with no confirmation in front of it.
+    @MainActor
+    @Test func deletingADraftOffersItBack() async throws {
+        let fixture = TransactionFixture()
+        let appState = AppState(repository: InMemoryLedgerRepository(ledger: fixture.ledger))
+        await appState.loadIfNeeded()
+
+        _ = await appState.createDraftExpense(
+            paidFrom: fixture.bank.id,
+            category: fixture.groceries.id,
+            amount: fixture.money(42),
+            date: fixture.date,
+            memo: "Rimi"
+        )
+
+        let draft = try #require(onlyTransaction(in: appState))
+        let deleted = await appState.deleteDraftTransaction(id: draft.id)
+
+        #expect(deleted)
+        #expect(appState.ledger.transactions.isEmpty)
+        #expect(appState.recentlyDeletedDraft?.transaction.memo == "Rimi")
+    }
+
+    @MainActor
+    @Test func undoRestoresTheDeletedDraft() async throws {
+        let fixture = TransactionFixture()
+        let appState = AppState(repository: InMemoryLedgerRepository(ledger: fixture.ledger))
+        await appState.loadIfNeeded()
+
+        _ = await appState.createDraftExpense(
+            paidFrom: fixture.bank.id,
+            category: fixture.groceries.id,
+            amount: fixture.money(42),
+            date: fixture.date,
+            memo: "Rimi"
+        )
+
+        let draft = try #require(onlyTransaction(in: appState))
+        _ = await appState.deleteDraftTransaction(id: draft.id)
+
+        let restored = await appState.undoDraftDeletion()
+
+        #expect(restored)
+        #expect(appState.recentlyDeletedDraft == nil)
+
+        let back = try #require(onlyTransaction(in: appState))
+        #expect(back.id == draft.id)
+        #expect(back.memo == "Rimi")
+        #expect(back.state == .draft)
+        #expect(back.postings == draft.postings)
+    }
+
+    @MainActor
+    @Test func dismissingUndoDropsTheOffer() async throws {
+        let fixture = TransactionFixture()
+        let appState = AppState(repository: InMemoryLedgerRepository(ledger: fixture.ledger))
+        await appState.loadIfNeeded()
+
+        _ = await appState.createDraftExpense(
+            paidFrom: fixture.bank.id,
+            category: fixture.groceries.id,
+            amount: fixture.money(42),
+            date: fixture.date,
+            memo: "Rimi"
+        )
+
+        let draft = try #require(onlyTransaction(in: appState))
+        _ = await appState.deleteDraftTransaction(id: draft.id)
+
+        appState.dismissUndo()
+
+        #expect(appState.recentlyDeletedDraft == nil)
+        #expect(await appState.undoDraftDeletion() == false)
+        #expect(appState.ledger.transactions.isEmpty)
+    }
+
+    /// Confirming is one way, so there is nothing to offer back.
+    @MainActor
+    @Test func deletingAConfirmedTransactionOffersNoUndo() async throws {
+        let fixture = TransactionFixture()
+        let appState = AppState(repository: InMemoryLedgerRepository(ledger: fixture.ledger))
+        await appState.loadIfNeeded()
+
+        _ = await appState.createFinalizedExpense(
+            paidFrom: fixture.bank.id,
+            category: fixture.groceries.id,
+            amount: fixture.money(42),
+            date: fixture.date,
+            memo: "Rimi"
+        )
+
+        let confirmed = try #require(onlyTransaction(in: appState))
+        let deleted = await appState.deleteDraftTransaction(id: confirmed.id)
+
+        #expect(!deleted)
+        #expect(appState.recentlyDeletedDraft == nil)
+        #expect(appState.ledger.transactions.count == 1)
+    }
+
+    /// A burst of edits is one write, not one per edit.
+    ///
+    /// Ticking forty entries off during a reconciliation used to mean forty full
+    /// serialisations of the whole ledger, each one blocking the UI update that
+    /// triggered it.
+    @MainActor
+    @Test func rapidMutationsCoalesceIntoASingleWrite() async throws {
+        let repository = InMemoryLedgerRepository()
+        let appState = AppState(repository: repository)
+
+        for index in 1...5 {
+            _ = await appState.createAccount(name: "Account \(index)", kind: .asset)
+        }
+
+        await appState.flushPendingWrites()
+
+        #expect(appState.ledger.accounts.count == 5)
+        #expect(await repository.savedLedgers.count == 1)
+        #expect(await repository.savedLedgers.last?.accounts.count == 5)
+    }
+
+    /// The regression this whole reordering exists to prevent.
+    ///
+    /// Two mutations dispatched without awaiting each other used to both read the
+    /// same ledger, and whichever saved last discarded the other's work. Both must
+    /// survive.
+    @MainActor
+    @Test func concurrentMutationsBothSurvive() async throws {
+        let repository = InMemoryLedgerRepository()
+        let appState = AppState(repository: repository)
+
+        async let first: Bool = appState.createAccount(name: "Bank", kind: .asset)
+        async let second: Bool = appState.createAccount(name: "Cash", kind: .asset)
+
+        _ = await (first, second)
+        await appState.flushPendingWrites()
+
+        let names = Set(appState.ledger.accounts.values.map(\.name))
+        #expect(names == ["Bank", "Cash"])
+
+        let persisted = await repository.savedLedgers.last
+        #expect(persisted?.accounts.count == 2)
     }
 }
 

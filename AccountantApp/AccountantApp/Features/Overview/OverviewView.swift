@@ -13,12 +13,22 @@ struct OverviewView: View {
     @State private var isPresentingNewAccount = false
     @State private var isPresentingImport = false
 
+    /// Built once per render and threaded down.
+    ///
+    /// `OverviewSnapshot.make` walks every transaction and every posting *twice per
+    /// currency* — once as of now, once as of the start of the month. Reading it
+    /// from a computed property meant paying that for each of the five references
+    /// in this file. `AccountSummary` already fixed the same mistake one layer
+    /// down; this is the layer above it.
     var body: some View {
-        Group {
+        let snapshot = self.snapshot
+        let draftCount = appState.draftCount
+
+        return Group {
             if snapshot.isEmpty {
                 emptyState
             } else {
-                content
+                content(snapshot, draftCount: draftCount)
             }
         }
         .navigationTitle("Overview")
@@ -63,10 +73,10 @@ struct OverviewView: View {
         }
     }
 
-    private var content: some View {
+    private func content(_ snapshot: OverviewSnapshot, draftCount: Int) -> some View {
         List {
             // A timely nudge costs nothing and needs no notification permission.
-            if !appState.draftTransactions.isEmpty {
+            if draftCount > 0 {
                 Section {
                     NavigationLink {
                         ReviewView()
@@ -77,7 +87,7 @@ struct OverviewView: View {
                                 .foregroundStyle(Theme.accent)
 
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(reviewPromptTitle)
+                                Text(reviewPromptTitle(draftCount))
                                     .font(.uiRowTitle)
                                     .foregroundStyle(Theme.ink)
 
@@ -99,7 +109,7 @@ struct OverviewView: View {
                         MonthActivityRow(group: group)
                     }
                 } header: {
-                    Text(headerTitle(for: group))
+                    Text(headerTitle(for: group, in: snapshot))
                 }
 
                 if !group.accounts.isEmpty {
@@ -151,15 +161,17 @@ struct OverviewView: View {
 
     /// Only names the currency when there is more than one, so the common
     /// single-currency case does not carry redundant chrome.
-    private func headerTitle(for group: OverviewSnapshot.CurrencyGroup) -> String {
+    private func headerTitle(
+        for group: OverviewSnapshot.CurrencyGroup,
+        in snapshot: OverviewSnapshot
+    ) -> String {
         snapshot.groups.count > 1
             ? "Net position · \(group.currency.code)"
             : "Net position"
     }
 
-    private var reviewPromptTitle: String {
-        let count = appState.draftTransactions.count
-        return count == 1 ? "1 entry to review" : "\(count) entries to review"
+    private func reviewPromptTitle(_ count: Int) -> String {
+        count == 1 ? "1 entry to review" : "\(count) entries to review"
     }
 
     private var snapshot: OverviewSnapshot {
@@ -265,7 +277,9 @@ private struct ArchivedAccountsView: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        List {
+        let archived = self.archived
+
+        return List {
             ForEach(archived, id: \.id) { account in
                 NavigationLink {
                     AccountDetailView(accountID: account.id)

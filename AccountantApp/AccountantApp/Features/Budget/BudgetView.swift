@@ -14,12 +14,23 @@ struct BudgetView: View {
     @State private var editingCategory: EditableCategory?
     @State private var isPresentingCategoryPicker = false
 
+    /// The report and the category list are built once here and passed down.
+    ///
+    /// They used to be computed properties read straight from `body`, which meant
+    /// SwiftUI re-evaluated them on every reference: sixteen full `BudgetReport`
+    /// builds per render, each one walking every transaction and every posting in
+    /// the ledger, plus three sorts of the account list. On a ledger with any real
+    /// history that is the difference between a screen that scrolls and one that
+    /// stutters.
     var body: some View {
-        Group {
+        let report = appState.budgetReport(for: period)
+        let categories = budgetableCategories
+
+        return Group {
             if report.lines.isEmpty && report.unbudgeted.isEmpty {
-                emptyState
+                emptyState(hasCategories: !categories.isEmpty)
             } else {
-                content
+                content(report)
             }
         }
         .navigationTitle("Budget")
@@ -30,11 +41,11 @@ struct BudgetView: View {
                 } label: {
                     Label("Set a limit", systemImage: "plus")
                 }
-                .disabled(budgetableCategories.isEmpty)
+                .disabled(categories.isEmpty)
             }
         }
         .sheet(isPresented: $isPresentingCategoryPicker) {
-            BudgetCategoryPicker(categories: budgetableCategories) { category in
+            BudgetCategoryPicker(categories: categories) { category in
                 isPresentingCategoryPicker = false
                 editingCategory = EditableCategory(account: category)
             }
@@ -51,10 +62,10 @@ struct BudgetView: View {
 
     // MARK: - Content
 
-    private var content: some View {
+    private func content(_ report: BudgetReport) -> some View {
         List {
             Section {
-                monthHeader
+                monthHeader(report)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -112,7 +123,7 @@ struct BudgetView: View {
 
     // MARK: - Header
 
-    private var monthHeader: some View {
+    private func monthHeader(_ report: BudgetReport) -> some View {
         VStack(alignment: .leading, spacing: Metrics.Space.l) {
             HStack {
                 Button {
@@ -145,14 +156,14 @@ struct BudgetView: View {
                     .foregroundStyle(Theme.inkMuted)
             } else {
                 FigureBlock(
-                    label: headlineLabel,
-                    money: headlineMoney,
+                    label: headlineLabel(report),
+                    money: headlineMoney(report),
                     role: report.totalRemaining.amount < .zero ? .balance : .plain,
                     font: .figureHero
                 )
 
                 BudgetBar(
-                    progress: overallProgress,
+                    progress: overallProgress(report),
                     isOverspent: report.totalRemaining.amount < .zero
                 )
 
@@ -169,7 +180,7 @@ struct BudgetView: View {
         .padding(.vertical, Metrics.Space.s)
     }
 
-    private var emptyState: some View {
+    private func emptyState(hasCategories: Bool) -> some View {
         ContentUnavailableView {
             Label("No budget yet", systemImage: "chart.bar")
         } description: {
@@ -181,30 +192,26 @@ struct BudgetView: View {
                 Label("Set a limit", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(budgetableCategories.isEmpty)
+            .disabled(!hasCategories)
         }
     }
 
     // MARK: - Derived
 
-    private var report: BudgetReport {
-        appState.budgetReport(for: period)
-    }
-
     /// Leads with what remains. Flips to the overspend only once there is one,
     /// where the honest number is the one worth showing.
-    private var headlineLabel: String {
+    private func headlineLabel(_ report: BudgetReport) -> String {
         report.totalRemaining.amount < .zero ? "Over budget" : "Left this month"
     }
 
-    private var headlineMoney: Money {
+    private func headlineMoney(_ report: BudgetReport) -> Money {
         let remaining = report.totalRemaining
 
         guard remaining.amount < .zero else { return remaining }
         return Money(-remaining.amount, currency: remaining.currency)
     }
 
-    private var overallProgress: Double {
+    private func overallProgress(_ report: BudgetReport) -> Double {
         guard report.totalTarget.amount > .zero else { return 0 }
 
         return max(
