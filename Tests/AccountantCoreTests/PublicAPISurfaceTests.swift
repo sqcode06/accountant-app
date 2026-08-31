@@ -134,4 +134,44 @@ final class PublicAPISurfaceTests: XCTestCase {
         let rowErrors: [BankLineRowError] = result.rowErrors
         XCTAssertTrue(rowErrors.isEmpty)
     }
+
+    /// The export screen lives in the app target, so every symbol it touches has
+    /// to be genuinely public — not merely visible through `@testable`.
+    func testExportAndBackupAPIsArePublic() throws {
+        var ledger = Ledger()
+
+        let bank = Account(name: "Swedbank", kind: .asset, currency: eur)
+        let groceries = Account(name: "Groceries", kind: .expense)
+        ledger.addAccount(bank)
+        ledger.addAccount(groceries)
+
+        try ledger.addTransaction(
+            try Transaction.draftExpense(
+                paidFrom: bank.id,
+                category: groceries.id,
+                amount: Money(Decimal(12), currency: eur),
+                date: Date(timeIntervalSince1970: 100),
+                memo: "Rimi"
+            )
+        )
+
+        let transactions: String = LedgerExport.transactionsCSV(
+            from: ledger,
+            includeDrafts: true,
+            timeZone: TimeZone(identifier: "UTC")!
+        )
+        XCTAssertTrue(transactions.contains("Swedbank"))
+
+        let accounts: String = LedgerExport.accountsCSV(from: ledger, includeDrafts: true)
+        XCTAssertTrue(accounts.contains("Groceries"))
+
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = JSONLedgerStore(fileURL: directory.appendingPathComponent("ledger.json"))
+        let backup: Data = try store.encoded(ledger)
+        XCTAssertFalse(backup.isEmpty)
+    }
 }

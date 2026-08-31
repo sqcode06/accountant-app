@@ -126,6 +126,16 @@ public struct JSONLedgerStore: LedgerStore {
         }
     }
 
+    /// The exact bytes this store would write for `ledger`.
+    ///
+    /// Exposed so a backup can be handed to the user as a file. Producing it here
+    /// rather than re-encoding elsewhere is the point: the schema version and the
+    /// date strategy live in this type, and a backup written with any other
+    /// encoding would be one this app cannot read back.
+    public func encoded(_ ledger: Ledger) throws -> Data {
+        try encoder.encode(PersistedLedger(ledger: ledger))
+    }
+
     public func save(_ ledger: Ledger) throws {
         let persisted = PersistedLedger(ledger: ledger)
         let data = try encoder.encode(persisted)

@@ -69,6 +69,19 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink {
+                    DataExportView()
+                        .environmentObject(appState)
+                } label: {
+                    Label("Export your data", systemImage: "square.and.arrow.up")
+                }
+            } header: {
+                Text("Your data")
+            } footer: {
+                Text("Spreadsheet files to read anywhere, and a full backup to keep somewhere safe.")
+            }
+
+            Section {
+                NavigationLink {
                     DangerZoneView()
                         .environmentObject(appState)
                         .environmentObject(onboarding)
