@@ -14,6 +14,7 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var themeManager: ThemeManager
     @EnvironmentObject private var onboarding: OnboardingController
+    @EnvironmentObject private var reminders: ReviewReminderController
 
     @State private var isPresentingCapture = false
     @State private var isPresentingOnboarding = false
@@ -79,6 +80,13 @@ struct ContentView: View {
         // finishing work had a chance to run.
         .task {
             isPresentingOnboarding = onboarding.shouldPresent
+            reminders.refresh(for: appState.ledger)
+        }
+        // The reminder names how many entries are waiting, so it is rebuilt
+        // whenever that number moves. Watching the count rather than the ledger
+        // keeps this off the path of edits that cannot change what it would say.
+        .onChange(of: appState.draftCount) { _, _ in
+            reminders.refresh(for: appState.ledger)
         }
         .appErrorAlert()
     }

@@ -8,6 +8,7 @@ struct AccountantAppApp: App {
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var onboarding = OnboardingController()
     @StateObject private var iconManager = AppIconManager()
+    @StateObject private var reminders = ReviewReminderController()
 
     init() {
         _appState = StateObject(
@@ -26,6 +27,7 @@ struct AccountantAppApp: App {
                 .environmentObject(themeManager)
                 .environmentObject(onboarding)
                 .environmentObject(iconManager)
+                .environmentObject(reminders)
                 .task {
                     await appState.loadIfNeeded()
                 }

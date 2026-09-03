@@ -10,6 +10,7 @@ import AccountantCore
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var onboarding: OnboardingController
+    @EnvironmentObject private var reminders: ReviewReminderController
 
     @State private var isPresentingImport = false
     @State private var isPresentingOnboarding = false
@@ -51,6 +52,46 @@ struct SettingsView: View {
                 Text("Import")
             } footer: {
                 Text("Rules match text in a statement line and set the category automatically.")
+            }
+
+            Section {
+                Toggle("Daily review reminder", isOn: Binding(
+                    get: { reminders.isEnabled },
+                    set: { wantsReminders in
+                        if wantsReminders {
+                            Task {
+                                await reminders.enable()
+                                reminders.refresh(for: appState.ledger)
+                            }
+                        } else {
+                            reminders.disable()
+                        }
+                    }
+                ))
+                .tint(Theme.accent)
+
+                if reminders.isEnabled {
+                    DatePicker(
+                        "Remind me at",
+                        selection: Binding(
+                            get: { reminders.reminderTime },
+                            set: { newTime in
+                                reminders.setTime(newTime)
+                                reminders.refresh(for: appState.ledger)
+                            }
+                        ),
+                        displayedComponents: .hourAndMinute
+                    )
+                    .tint(Theme.accent)
+                }
+            } header: {
+                Text("Reminders")
+            } footer: {
+                if reminders.isDeniedBySystem {
+                    Text("Notifications are turned off for Accountant in iOS Settings. Turn them on there to use reminders.")
+                } else {
+                    Text("A nudge at the end of the day, only when something is actually waiting to be reviewed.")
+                }
             }
 
             Section {

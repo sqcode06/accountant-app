@@ -11,6 +11,7 @@ import AccountantCore
 /// Confirmation is all-or-nothing, so a review either happened or it did not.
 struct ReviewView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var reminders: ReviewReminderController
 
     @State private var isConfirming = false
 
@@ -160,6 +161,12 @@ struct ReviewView: View {
 
             if confirmed {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
+
+                // The one moment worth spending the single permission prompt iOS
+                // allows: the review loop has just worked, so an offer to remind
+                // them next time means something. Asking on first launch, before
+                // the app has recorded anything, spends that one chance on a no.
+                await reminders.offerAfterFirstReview()
             }
         }
     }

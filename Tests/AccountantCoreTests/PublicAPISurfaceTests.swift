@@ -198,6 +198,19 @@ final class PublicAPISurfaceTests: XCTestCase {
         let restored: LedgerBackup = try LedgerBackupCoder.decode(data)
         XCTAssertEqual(restored.ledger.accounts.count, 2)
 
+        // The reminder decision is read by the app's notification scheduler.
+        switch ReviewReminder.decide(for: ledger) {
+        case .nothingToReview:
+            XCTFail("Expected the fixture's draft to be waiting")
+        case let .remind(reminder):
+            let count: Int = reminder.draftCount
+            let age: Int = reminder.oldestDraftAgeInDays
+            XCTAssertEqual(count, 1)
+            XCTAssertGreaterThanOrEqual(age, 0)
+            XCTAssertFalse(reminder.title.isEmpty)
+            XCTAssertFalse(reminder.body.isEmpty)
+        }
+
         let summary: LedgerBackupSummary = try LedgerBackupCoder.summarize(data)
         XCTAssertEqual(summary.transactionCount, 1)
         XCTAssertEqual(summary.classificationRuleCount, 1)
