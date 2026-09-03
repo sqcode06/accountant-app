@@ -24,12 +24,12 @@ The app builds and runs. It is usable day to day and is not yet something to put
 - reconciliation against a statement balance, by ticking entries off;
 - six themes and matching alternate app icons;
 - an onboarding guide, a danger zone, and per-account currency;
-- CSV export and a complete backup that can be restored.
+- CSV export and a complete backup that can be restored;
+- a daily review reminder, scheduled only when something is actually waiting.
 
 **Not there yet:**
 
 - multi-device sync. The merge primitives exist and are tested, but nothing in the app calls them — see [Merge and sync foundation](#merge-and-sync-foundation);
-- review reminders. The nudge is a banner on Overview; there are no notifications;
 - currency conversion. Amounts are never converted, anywhere, on purpose;
 - recurring transactions;
 - charts.
@@ -583,7 +583,7 @@ Things we care about:
 In rough order of how much it matters:
 
 1. **A clean LHV export.** The LHV preset's column names are a guess made from a copy-pasted sample whose columns were shifted, and every row was correctly rejected. Swedbank and Revolut are verified against real files.
-2. **Review reminders.** Capture is deliberately careless because the evening review is meant to catch it — but nothing reminds you to do the review except opening the app.
+2. **Reminders on a real device.** The logic is tested, but permission prompts, delivery and the Settings toggle have only been checked by inspection.
 3. **Sync.** The merge rules are done and tested. What is missing is a transport and the UX around conflicts.
 4. **Recurring transactions.** Rent and subscriptions are the entries most worth not typing every month.
 5. **Charts.** Deliberately last. A budget app earns trust by being right before it earns attention by being pretty.

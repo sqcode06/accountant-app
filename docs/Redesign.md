@@ -110,12 +110,6 @@ Four real defects fixed, not just design work:
 - **A clean LHV export.** The preset's column names are a guess from a sample whose
   columns were shifted by copy-paste; every row was correctly rejected. Swedbank
   and Revolut are verified against real files.
-- **Review reminders.** Still the open question from the original plan. Capture is
-  deliberately careless because the evening review catches it, but nothing prompts
-  the review except opening the app. The argument against has not changed — a
-  notification permission prompt is a big ask for something the Overview banner
-  already does — and the argument for is that the banner only works if you open the
-  app, which is exactly what someone avoiding their budget does not do.
 - **Sync.** The merge stack is written and tested and nothing calls it. Missing: a
   transport and conflict UX.
 - Inline errors instead of the single global alert — but keep `AppError.swift`,
@@ -131,6 +125,11 @@ Four real defects fixed, not just design work:
   lost-update window and stopped a reconciliation costing one whole-file rewrite
   per tick.
 - Undo exists for the one destructive action reachable from a bare swipe.
+- **Review reminders exist.** The open question resolved in favour of building
+  them, with the permission ask moved to after the first confirmed review rather
+  than onto launch — iOS allows one prompt, and spending it before the app has
+  recorded anything spends it on a no. Scheduled one occurrence at a time so the
+  count stays honest and an empty queue cancels instead of firing.
 - Export and backup exist, and a backup can be restored.
 
 ## Dev loop
