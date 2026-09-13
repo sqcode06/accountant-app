@@ -18,7 +18,9 @@ public enum StoreLoadOutcome<Value: Sendable>: Sendable {
     /// No file yet. An ordinary first run; safe to start empty and save freely.
     case empty
 
-    /// A file was there and could not be read. It has been moved aside.
+    /// A file was there and could not be read. Its bytes are protected by a
+    /// durable recovery record; when moving them aside failed they remain at the
+    /// original path and writes stay blocked.
     ///
     /// Callers **must not** write to the store after receiving this. Starting
     /// empty here is what destroys data.
@@ -57,7 +59,34 @@ public struct JSONLedgerStore: LedgerStore {
         self.decoder = dec
     }
 
+    /// True when an unfinished recovery, a malformed sidecar, or an unadopted
+    /// legacy quarantine prevents normal writes.
+    public var hasUnresolvedRecovery: Bool {
+        switch FileQuarantine.state(for: fileURL) {
+        case .unresolved, .invalid:
+            return true
+        case .absent:
+            return FileQuarantine.legacyRecord(for: fileURL) != nil
+        case .resolved:
+            return false
+        }
+    }
+
     public func load() throws -> Ledger {
+        switch FileQuarantine.state(for: fileURL) {
+        case .unresolved:
+            throw StoreRecoveryError.recoveryUnresolved
+        case .invalid:
+            throw StoreRecoveryError.recoveryRecordUnreadable
+        case .absent where FileQuarantine.legacyRecord(for: fileURL) != nil:
+            throw StoreRecoveryError.recoveryUnresolved
+        case .absent, .resolved:
+            break
+        }
+        return try readLedger()
+    }
+
+    private func readLedger() throws -> Ledger {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw LedgerStoreError.fileNotFound
         }
@@ -73,30 +102,162 @@ public struct JSONLedgerStore: LedgerStore {
     }
 
     public func loadOutcome() -> LedgerLoadOutcome {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return .empty
+        switch FileQuarantine.state(for: fileURL) {
+        case let .unresolved(marker):
+            return .unreadable(FileQuarantine.record(from: marker, for: fileURL))
+        case .invalid:
+            return .unreadable(unreadableSidecarRecord())
+        case .absent:
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                return legacyOutcomeOrEmpty()
+            }
+        case .resolved:
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                return .empty
+            }
         }
 
         do {
-            return .loaded(try load())
+            return .loaded(try readLedger())
         } catch {
-            // Move it aside before returning. Quarantining here rather than in the
-            // caller means the file is safe even if every layer above this one
-            // mishandles the result.
-            return .unreadable(
-                FileQuarantine.move(fileURL, reason: String(describing: error))
-            )
+            return quarantineFailure(reason: String(describing: error))
         }
     }
 
     public func save(_ ledger: Ledger) throws {
+        try ensureOrdinarySaveIsSafe()
+        try write(ledger)
+    }
+
+    /// Writes a replacement while keeping the recovery record unresolved. This
+    /// lets a coordinator replace every store before any becomes loadable again.
+    /// On a healthy or first-run store this is equivalent to `save(_:)`.
+    public func replaceForRecovery(_ ledger: Ledger) throws {
+        switch FileQuarantine.state(for: fileURL) {
+        case let .unresolved(marker):
+            guard FileQuarantine.canReplace(marker, for: fileURL) else {
+                throw StoreRecoveryError.originalNotSafelyQuarantined
+            }
+        case .invalid:
+            throw StoreRecoveryError.recoveryRecordUnreadable
+        case .absent:
+            if let legacy = FileQuarantine.legacyRecord(for: fileURL) {
+                do {
+                    let marker = try FileQuarantine.adoptLegacyRecovery(legacy, for: fileURL)
+                    guard FileQuarantine.canReplace(marker, for: fileURL) else {
+                        throw StoreRecoveryError.originalNotSafelyQuarantined
+                    }
+                } catch let error as StoreRecoveryError {
+                    throw error
+                } catch {
+                    throw StoreRecoveryError.recoveryRecordUnreadable
+                }
+            } else if FileManager.default.fileExists(atPath: fileURL.path) {
+                // A failed initial sidecar write leaves a corrupt original here.
+                // Never let the recovery API overwrite it merely because no
+                // durable marker was possible at that instant.
+                do {
+                    _ = try load()
+                } catch {
+                    throw StoreRecoveryError.originalNotSafelyQuarantined
+                }
+            }
+        case .resolved:
+            try ensureExistingResolvedFileIsValid()
+        }
+        try write(ledger)
+    }
+
+    /// Validates a replacement before resolving the sidecar. It is a no-op for a
+    /// healthy store so callers can complete all stores as one coordinated step.
+    public func completeRecovery() throws {
+        switch FileQuarantine.state(for: fileURL) {
+        case .absent:
+            return
+        case .resolved:
+            try ensureExistingResolvedFileIsValid()
+        case .invalid:
+            throw StoreRecoveryError.recoveryRecordUnreadable
+        case let .unresolved(marker):
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                throw StoreRecoveryError.replacementMissing
+            }
+            do {
+                _ = try readLedger()
+            } catch {
+                throw StoreRecoveryError.replacementUnreadable
+            }
+            do {
+                try FileQuarantine.resolve(marker, for: fileURL)
+            } catch {
+                throw StoreRecoveryError.recoveryRecordUnreadable
+            }
+        }
+    }
+
+    private func write(_ ledger: Ledger) throws {
         let persisted = PersistedLedger(ledger: ledger)
         let data = try encoder.encode(persisted)
-
-        // Ensure directory exists
         let dir = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
         try data.write(to: fileURL, options: [.atomic])
+    }
+
+    private func ensureOrdinarySaveIsSafe() throws {
+        switch FileQuarantine.state(for: fileURL) {
+        case .unresolved:
+            throw StoreRecoveryError.recoveryUnresolved
+        case .invalid:
+            throw StoreRecoveryError.recoveryRecordUnreadable
+        case .resolved:
+            try ensureExistingResolvedFileIsValid()
+        case .absent:
+            if FileQuarantine.legacyRecord(for: fileURL) != nil {
+                throw StoreRecoveryError.recoveryUnresolved
+            }
+            // A marker-write failure leaves the unreadable original in place.
+            // Validate before overwriting it, so that case cannot lose bytes.
+            guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+            do {
+                _ = try readLedger()
+            } catch {
+                throw StoreRecoveryError.recoveryUnresolved
+            }
+        }
+    }
+
+    private func legacyOutcomeOrEmpty() -> LedgerLoadOutcome {
+        guard let legacy = FileQuarantine.legacyRecord(for: fileURL) else { return .empty }
+        do {
+            let marker = try FileQuarantine.adoptLegacyRecovery(legacy, for: fileURL)
+            return .unreadable(FileQuarantine.record(from: marker, for: fileURL))
+        } catch {
+            return .unreadable(legacy)
+        }
+    }
+
+    private func quarantineFailure(reason: String) -> LedgerLoadOutcome {
+        do {
+            return .unreadable(try FileQuarantine.beginRecovery(for: fileURL, reason: reason))
+        } catch {
+            return .unreadable(QuarantineRecord(originalURL: fileURL, quarantinedURL: fileURL, reason: reason))
+        }
+    }
+
+    private func unreadableSidecarRecord() -> QuarantineRecord {
+        QuarantineRecord(
+            originalURL: fileURL,
+            quarantinedURL: fileURL,
+            reason: "The recovery record cannot be read safely"
+        )
+    }
+
+    private func ensureExistingResolvedFileIsValid() throws {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        do {
+            _ = try readLedger()
+        } catch {
+            throw StoreRecoveryError.recoveryUnresolved
+        }
     }
 }

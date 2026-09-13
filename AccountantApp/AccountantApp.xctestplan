@@ -1,0 +1,44 @@
+{
+  "configurations" : [
+    {
+      "id" : "C6A02BF3-4345-4657-8A0A-8925864BB8AF",
+      "name" : "Default",
+      "options" : {
+        "language" : "en",
+        "region" : "US",
+        "targetForVariableExpansion" : {
+          "containerPath" : "container:AccountantApp.xcodeproj",
+          "identifier" : "B00993B82FC09A61001262DB",
+          "name" : "AccountantApp"
+        }
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:AccountantApp.xcodeproj",
+      "identifier" : "B00993B82FC09A61001262DB",
+      "name" : "AccountantApp"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:AccountantApp.xcodeproj",
+        "identifier" : "B00993C72FC09A62001262DB",
+        "name" : "AccountantAppTests"
+      }
+    },
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:AccountantApp.xcodeproj",
+        "identifier" : "B00993D12FC09A62001262DB",
+        "name" : "AccountantAppUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

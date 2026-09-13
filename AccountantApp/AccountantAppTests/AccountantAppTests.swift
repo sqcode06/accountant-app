@@ -23,14 +23,15 @@ struct AccountantAppTests {
     }
 
     @MainActor
-    @Test func loadFailureUsesEmptyLedgerAndReportsError() async throws {
+    @Test func unreadableLoadUsesEmptyLedgerAndLocksWrites() async throws {
         let repository = InMemoryLedgerRepository(loadError: TestRepositoryError.loadFailed)
         let appState = AppState(repository: repository)
 
         await appState.loadIfNeeded()
 
         #expect(appState.ledger.accounts.isEmpty)
-        #expect(appState.lastError?.message.isEmpty == false)
+        #expect(appState.isDataLocked)
+        #expect(appState.dataProtection.quarantined.count == 1)
     }
 
     @MainActor
@@ -552,6 +553,20 @@ private actor InMemoryLedgerRepository: LedgerRepository {
         }
 
         return storedLedger
+    }
+
+    func load() async -> LedgerLoadOutcome {
+        do {
+            return .loaded(try await loadOrCreate())
+        } catch {
+            return .unreadable(
+                QuarantineRecord(
+                    originalURL: URL(fileURLWithPath: "/tmp/test-ledger.json"),
+                    quarantinedURL: URL(fileURLWithPath: "/tmp/test-ledger.unreadable.json"),
+                    reason: String(describing: error)
+                )
+            )
+        }
     }
 
     func save(_ ledger: Ledger) async throws {

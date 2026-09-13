@@ -40,6 +40,10 @@ final class LedgerLoadOutcomeTests: XCTestCase {
             .sorted()
     }
 
+    private var recoveryURL: URL {
+        directory.appendingPathComponent("ledger.recovery.json")
+    }
+
     // MARK: - The ordinary cases
 
     func testAbsentFileReadsAsEmptyRatherThanDamaged() throws {
@@ -114,18 +118,14 @@ final class LedgerLoadOutcomeTests: XCTestCase {
     }
 
     func testQuarantiningTwiceDoesNotCollide() throws {
-        let store = JSONLedgerStore(fileURL: fileURL)
-
         try Data("garbage one".utf8).write(to: fileURL)
-        guard case let .unreadable(first) = store.loadOutcome() else {
-            return XCTFail("Expected .unreadable")
-        }
+        let first = FileQuarantine.move(fileURL, reason: "first")
 
-        // Same second, same generated name — the counter has to save us.
+        // Same second, same generated name — the counter has to save us. Store
+        // recovery itself now remains locked after the first failure, so this
+        // exercises the intentional low-level quarantine operation directly.
         try Data("garbage two".utf8).write(to: fileURL)
-        guard case let .unreadable(second) = store.loadOutcome() else {
-            return XCTFail("Expected .unreadable")
-        }
+        let second = FileQuarantine.move(fileURL, reason: "second")
 
         XCTAssertNotEqual(first.quarantinedURL, second.quarantinedURL)
         XCTAssertEqual(try quarantinedFiles().count, 2)
@@ -136,20 +136,171 @@ final class LedgerLoadOutcomeTests: XCTestCase {
 
     // MARK: - Recovery
 
-    func testStoreIsUsableAgainAfterQuarantine() throws {
+    func testNewStoreInstanceRemainsUnreadableAfterOriginalWasMoved() throws {
         try Data("not json".utf8).write(to: fileURL)
+        _ = JSONLedgerStore(fileURL: fileURL).loadOutcome()
 
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        guard case .unreadable = JSONLedgerStore(fileURL: fileURL).loadOutcome() else {
+            return XCTFail("A relaunch must retain unresolved recovery state")
+        }
+    }
+
+    func testOrdinarySaveIsDeniedWhileRecoveryIsUnresolved() throws {
+        try Data("not json".utf8).write(to: fileURL)
         let store = JSONLedgerStore(fileURL: fileURL)
         _ = store.loadOutcome()
 
-        // "Start fresh" must work: the path is clear and saving succeeds.
-        try store.save(makeLedger())
+        XCTAssertThrowsError(try store.save(makeLedger())) { error in
+            XCTAssertEqual(error as? StoreRecoveryError, .recoveryUnresolved)
+        }
+    }
 
-        guard case let .loaded(ledger) = store.loadOutcome() else {
-            return XCTFail("Expected .loaded after starting fresh")
+    func testReplacementStaysUnreadableUntilRecoveryCompletesAndPreservesQuarantine() throws {
+        let original = Data("the only old copy".utf8)
+        try original.write(to: fileURL)
+        let store = JSONLedgerStore(fileURL: fileURL)
+
+        guard case let .unreadable(record) = store.loadOutcome() else {
+            return XCTFail("Expected unreadable")
+        }
+        XCTAssertEqual(try Data(contentsOf: record.quarantinedURL), original)
+
+        try store.replaceForRecovery(makeLedger())
+        guard case .unreadable = JSONLedgerStore(fileURL: fileURL).loadOutcome() else {
+            return XCTFail("Replacement must not unlock one store before all stores are ready")
+        }
+
+        try store.completeRecovery()
+        guard case let .loaded(ledger) = JSONLedgerStore(fileURL: fileURL).loadOutcome() else {
+            return XCTFail("Expected the validated replacement after completion")
         }
 
         XCTAssertEqual(ledger.accounts.count, 1)
-        XCTAssertEqual(try quarantinedFiles().count, 1, "The quarantined copy must survive starting fresh")
+        XCTAssertEqual(try Data(contentsOf: record.quarantinedURL), original)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: recoveryURL.path))
+    }
+
+    func testLegacyQuarantineIsDetectedThenDoesNotRelockAfterCompletion() throws {
+        let legacyURL = directory.appendingPathComponent("ledger.unreadable-20260811-172400.json")
+        let original = Data("legacy damaged bytes".utf8)
+        try original.write(to: legacyURL)
+
+        let store = JSONLedgerStore(fileURL: fileURL)
+        guard case let .unreadable(record) = store.loadOutcome() else {
+            return XCTFail("Legacy quarantine must not look like a first run")
+        }
+        XCTAssertEqual(record.quarantinedURL, legacyURL)
+
+        try store.replaceForRecovery(makeLedger())
+        try store.completeRecovery()
+        guard case .loaded = JSONLedgerStore(fileURL: fileURL).loadOutcome() else {
+            return XCTFail("A resolved sidecar must suppress stale legacy detection")
+        }
+        XCTAssertEqual(try Data(contentsOf: legacyURL), original)
+    }
+
+    func testMalformedRecoveryRecordFailsClosedAndDoesNotOverwriteOriginal() throws {
+        let original = Data("damaged but preserved".utf8)
+        try original.write(to: fileURL)
+        try Data("not a recovery record".utf8).write(to: recoveryURL)
+
+        let store = JSONLedgerStore(fileURL: fileURL)
+        guard case .unreadable = store.loadOutcome() else {
+            return XCTFail("Malformed recovery metadata must be treated as unresolved")
+        }
+        XCTAssertThrowsError(try store.save(makeLedger())) { error in
+            XCTAssertEqual(error as? StoreRecoveryError, .recoveryRecordUnreadable)
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), original)
+    }
+
+    func testInaccessibleRecoveryMarkerFailsClosedBeforeMovingOriginal() throws {
+        let original = Data("damaged but preserved".utf8)
+        try original.write(to: fileURL)
+        try FileManager.default.createDirectory(at: recoveryURL, withIntermediateDirectories: false)
+
+        let store = JSONLedgerStore(fileURL: fileURL)
+        guard case .unreadable = store.loadOutcome() else {
+            return XCTFail("An unusable recovery marker must fail closed")
+        }
+        XCTAssertThrowsError(try store.save(makeLedger()))
+        XCTAssertEqual(try Data(contentsOf: fileURL), original)
+    }
+
+    func testRecoveryReplacementCannotOverwriteAnUnmarkedUnreadableOriginal() throws {
+        let original = Data("marker write may have failed".utf8)
+        try original.write(to: fileURL)
+
+        let store = JSONLedgerStore(fileURL: fileURL)
+        XCTAssertThrowsError(try store.replaceForRecovery(makeLedger())) { error in
+            XCTAssertEqual(error as? StoreRecoveryError, .originalNotSafelyQuarantined)
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), original)
+    }
+
+    func testResolvedTombstoneDoesNotPermitOverwritingANewCorruption() throws {
+        try Data("first corruption".utf8).write(to: fileURL)
+        let store = JSONLedgerStore(fileURL: fileURL)
+        _ = store.loadOutcome()
+        try store.replaceForRecovery(makeLedger())
+        try store.completeRecovery()
+
+        let newerCorruption = Data("new corruption after a completed recovery".utf8)
+        try newerCorruption.write(to: fileURL)
+        XCTAssertThrowsError(try store.save(makeLedger())) { error in
+            XCTAssertEqual(error as? StoreRecoveryError, .recoveryUnresolved)
+        }
+        XCTAssertThrowsError(try store.replaceForRecovery(makeLedger())) { error in
+            XCTAssertEqual(error as? StoreRecoveryError, .recoveryUnresolved)
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), newerCorruption)
+
+        guard case .unreadable = store.loadOutcome() else {
+            return XCTFail("A later corruption must start a new unresolved recovery")
+        }
+    }
+
+    func testRecoverySurvivesMovingTheContainingDirectory() throws {
+        let original = Data("protect me across a directory move".utf8)
+        try original.write(to: fileURL)
+        _ = JSONLedgerStore(fileURL: fileURL).loadOutcome()
+
+        let movedDirectory = directory.deletingLastPathComponent()
+            .appendingPathComponent("moved-ledger-outcome-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.moveItem(at: directory, to: movedDirectory)
+        directory = movedDirectory
+
+        let movedStore = JSONLedgerStore(fileURL: fileURL)
+        guard case let .unreadable(record) = movedStore.loadOutcome() else {
+            return XCTFail("A local-name marker must remain valid after moving its directory")
+        }
+        XCTAssertEqual(try Data(contentsOf: record.quarantinedURL), original)
+        try movedStore.replaceForRecovery(makeLedger())
+        try movedStore.completeRecovery()
+        guard case .loaded = movedStore.loadOutcome() else {
+            return XCTFail("Moved recovery should complete normally")
+        }
+    }
+
+    func testForgedOutOfDirectoryQuarantineNameFailsClosed() throws {
+        let escapedURL = directory.deletingLastPathComponent().appendingPathComponent("outside.json")
+        let escapedBytes = Data("must not be used as a quarantine target".utf8)
+        try escapedBytes.write(to: escapedURL)
+        defer { try? FileManager.default.removeItem(at: escapedURL) }
+
+        let marker = """
+        {"version":2,"state":"unresolved","relocation":"moved","originalFilename":"ledger.json","quarantinedFilename":"../outside.json","reason":"forged"}
+        """
+        try Data(marker.utf8).write(to: recoveryURL)
+
+        let store = JSONLedgerStore(fileURL: fileURL)
+        guard case .unreadable = store.loadOutcome() else {
+            return XCTFail("An escaped quarantine path must be rejected")
+        }
+        XCTAssertThrowsError(try store.replaceForRecovery(makeLedger())) { error in
+            XCTAssertEqual(error as? StoreRecoveryError, .recoveryRecordUnreadable)
+        }
+        XCTAssertEqual(try Data(contentsOf: escapedURL), escapedBytes)
     }
 }

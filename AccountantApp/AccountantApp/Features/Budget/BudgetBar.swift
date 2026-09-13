@@ -28,13 +28,21 @@ struct BudgetBar: View {
         }
         .frame(height: 6)
         .animation(.easeOut(duration: 0.35), value: progress)
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Budget progress")
+        .accessibilityValue(accessibilityProgress)
     }
 
     private var tint: Color {
         if isOverspent { return Theme.deficit }
         if isNearLimit { return Theme.pending }
         return Theme.accent
+    }
+
+    private var accessibilityProgress: String {
+        guard progress.isFinite else { return "Unavailable" }
+        let safePercentage = min(max(progress, 0), 10) * 100
+        return "\(Int(safePercentage.rounded())) percent"
     }
 }
 

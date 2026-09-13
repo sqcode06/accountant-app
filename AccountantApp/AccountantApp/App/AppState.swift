@@ -1,5 +1,8 @@
 import Foundation
 import AccountantCore
+#if canImport(Combine)
+import Combine
+#endif
 
 @MainActor
 final class AppState: ObservableObject {
@@ -18,6 +21,7 @@ final class AppState: ObservableObject {
     private let classificationRuleRepository: ClassificationRuleRepository
     private let budgetRepository: BudgetRepository
     private var didAttemptInitialLoad = false
+    private var isReplacingData = false
 
     init(
         repository: LedgerRepository,
@@ -100,27 +104,27 @@ final class AppState: ObservableObject {
 
     var isDataLocked: Bool { dataProtection.isLocked }
 
-    /// Accepts the loss and starts over. The quarantined files stay on disk.
-    func startFreshAfterDamage() async {
-        guard isDataLocked else { return }
-
-        dataProtection = .ok
-        lastError = nil
-
-        // Write the now-empty state so the app is in a consistent, known place.
-        _ = await mutateAndSave { _ in }
-        await flushPendingWrites()
+    /// Resets all financial data. The recovery lock and originals survive any
+    /// failed write; only a complete replacement dismisses recovery.
+    @discardableResult
+    func startFreshAfterDamage() async -> Bool {
+        guard isDataLocked else { return false }
+        return await replaceDamagedData(with: LedgerBackup(ledger: Ledger()))
     }
 
     /// Tries the load again — for when the cause was transient, such as the file
     /// being unavailable rather than corrupt.
     func retryLoadAfterDamage() async {
+        guard isDataLocked, !isReplacingData, !isLoading else { return }
         didAttemptInitialLoad = false
-        dataProtection = .ok
         await loadIfNeeded()
     }
 
     private func refuseWriteWhileLocked() -> Bool {
+        guard !isReplacingData else {
+            lastError = AppError(message: "Please wait for data recovery to finish before making changes.")
+            return true
+        }
         guard isDataLocked else { return false }
 
         let names = dataProtection.quarantined
@@ -131,6 +135,44 @@ final class AppState: ObservableObject {
             message: "Saving is paused because your saved data could not be read. The original file is safe as \(names). Choose Start fresh or Try again to continue."
         )
 
+        return true
+    }
+
+    /// The three stores remain protected until every replacement is on disk.
+    /// This path deliberately bypasses ordinary (locked) saving and never
+    /// schedules an automatic retry of a destructive replacement.
+    private func replaceDamagedData(with backup: LedgerBackup) async -> Bool {
+        guard !isReplacingData, !isLoading else { return false }
+        isReplacingData = true
+        defer { isReplacingData = false }
+
+        flushTask?.cancel()
+        flushTask = nil
+        if let activeFlush { _ = await activeFlush.value }
+        pending = PendingWrites()
+        lastError = nil
+
+        do {
+            try await repository.replaceForRecovery(backup.ledger)
+            try await budgetRepository.replaceForRecovery(backup.budget)
+            try await classificationRuleRepository.replaceForRecovery(backup.classificationRules)
+
+            // Never clear a durable recovery record while another replacement
+            // still needs saving. Interruption before this point stays locked.
+            try await repository.completeRecovery()
+            try await budgetRepository.completeRecovery()
+            try await classificationRuleRepository.completeRecovery()
+        } catch {
+            lastError = AppError(error)
+            return false
+        }
+
+        ledger = backup.ledger
+        budget = backup.budget
+        classificationRules = backup.classificationRules
+        dismissUndo()
+        dataProtection = .ok
+        lastError = nil
         return true
     }
 
@@ -147,14 +189,13 @@ final class AppState: ObservableObject {
 
     private var pending = PendingWrites()
     private var flushTask: Task<Void, Never>?
-    private var isFlushing = false
-    private var wantsAnotherFlush = false
+    private var activeFlush: Task<Bool, Never>?
+    private var persistenceErrorID: UUID?
 
     /// How long a change sits in memory before it is written.
     ///
-    /// Long enough to absorb a burst — ticking entries off during a reconciliation,
-    /// or a run of category taps — and short enough that nothing meaningful is at
-    /// risk if the app is killed without warning.
+    /// Absorbs bursts of changes. This interval is a real unsaved window; callers
+    /// needing completion must await `flushPendingWrites()` and check its result.
     private static let flushDelay = Duration.milliseconds(400)
 
     /// Marks state dirty and schedules a coalesced write.
@@ -165,7 +206,7 @@ final class AppState: ObservableObject {
         flushTask = Task { [weak self] in
             try? await Task.sleep(for: AppState.flushDelay)
             guard !Task.isCancelled else { return }
-            await self?.flushPendingWrites()
+            _ = await self?.flushPendingWrites()
         }
     }
 
@@ -173,28 +214,33 @@ final class AppState: ObservableObject {
     ///
     /// Call it directly when durability matters right now — a destructive action,
     /// or the app going to the background — rather than waiting out the debounce.
-    func flushPendingWrites() async {
+    @discardableResult
+    func flushPendingWrites() async -> Bool {
         flushTask?.cancel()
         flushTask = nil
 
-        // One writer at a time. Two flushes running concurrently could finish out
-        // of order and leave the *older* snapshot on disk.
-        guard !isFlushing else {
-            wantsAnotherFlush = true
-            return
+        guard !isDataLocked, !isReplacingData else { return false }
+
+        // A concurrent caller joins the writer instead of returning before its
+        // own dirty state has reached disk. The writer drains changes arriving
+        // during a save, stopping on failure rather than spinning on a bad disk.
+        if let activeFlush { return await activeFlush.value }
+        guard !pending.isEmpty else { return true }
+
+        let writer = Task { @MainActor in
+            defer { self.activeFlush = nil }
+            repeat {
+                guard await self.writeDirtyStores() else { return false }
+            } while !self.pending.isEmpty
+            return true
         }
-
-        isFlushing = true
-        defer { isFlushing = false }
-
-        repeat {
-            wantsAnotherFlush = false
-            await writeDirtyStores()
-        } while wantsAnotherFlush
+        activeFlush = writer
+        return await writer.value
     }
 
-    private func writeDirtyStores() async {
-        guard !pending.isEmpty, !isDataLocked else { return }
+    private func writeDirtyStores() async -> Bool {
+        guard !isDataLocked else { return false }
+        guard !pending.isEmpty else { return true }
 
         var failure: Error?
 
@@ -230,8 +276,15 @@ final class AppState: ObservableObject {
         }
 
         if let failure {
-            lastError = AppError(failure)
+            let error = AppError(failure)
+            lastError = error
+            persistenceErrorID = error.id
+            return false
         }
+
+        if lastError?.id == persistenceErrorID { lastError = nil }
+        persistenceErrorID = nil
+        return true
     }
 
     /// Applies a change in memory, then schedules the write.
@@ -636,9 +689,7 @@ final class AppState: ObservableObject {
             $0.ledger = true
             $0.budget = true
         }
-        await flushPendingWrites()
-
-        return lastError == nil
+        return await flushPendingWrites()
     }
 
     /// Replaces everything with the contents of a backup.
@@ -653,7 +704,15 @@ final class AppState: ObservableObject {
     /// the time they are looking at the result.
     @discardableResult
     func restore(from backup: LedgerBackup) async -> Bool {
-        dataProtection = .ok
+        guard !isReplacingData, !isLoading else { return false }
+        do {
+            try backup.validateForRestore()
+        } catch {
+            lastError = AppError(error)
+            return false
+        }
+
+        if isDataLocked { return await replaceDamagedData(with: backup) }
 
         ledger = backup.ledger
         budget = backup.budget
@@ -669,9 +728,7 @@ final class AppState: ObservableObject {
             $0.budget = true
             $0.rules = true
         }
-        await flushPendingWrites()
-
-        return lastError == nil
+        return await flushPendingWrites()
     }
 
     /// Erases everything — ledger, budget and import rules.
@@ -681,23 +738,23 @@ final class AppState: ObservableObject {
     /// pretending a wipe succeeded when the budget file is still on disk.
     @discardableResult
     func eraseAllData() async -> Bool {
-        // Deliberately allowed while locked: erasing is a valid way out of damage,
-        // and the quarantined copies survive it.
-        dataProtection = .ok
+        guard !isReplacingData, !isLoading else { return false }
+        if isDataLocked {
+            return await replaceDamagedData(with: LedgerBackup(ledger: Ledger()))
+        }
 
         ledger = Ledger()
         budget = Budget()
         classificationRules = []
         lastError = nil
+        dismissUndo()
 
         scheduleFlush {
             $0.ledger = true
             $0.budget = true
             $0.rules = true
         }
-        await flushPendingWrites()
-
-        return lastError == nil
+        return await flushPendingWrites()
     }
 
     /// Clears every monthly limit, leaving the ledger alone.
@@ -804,9 +861,7 @@ final class AppState: ObservableObject {
         // Flushed rather than debounced: an import is a lot of work to lose, and
         // the user is already waiting on the result.
         scheduleFlush { $0.ledger = true }
-        await flushPendingWrites()
-
-        return report
+        return await flushPendingWrites() ? report : nil
     }
 
     @discardableResult

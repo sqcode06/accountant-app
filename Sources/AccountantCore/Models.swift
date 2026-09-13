@@ -217,6 +217,15 @@ public struct Transaction: Hashable, Codable, Sendable {
     public func validate() throws {
         guard postings.count >= 2 else { throw LedgerError.emptyTransaction }
 
+        for posting in postings {
+            guard !posting.money.amount.isNaN else {
+                throw LedgerError.invalidMonetaryAmount
+            }
+            guard posting.money.currency.hasValidCode else {
+                throw LedgerError.invalidCurrencyCode(posting.money.currency.code)
+            }
+        }
+
         let c = postings[0].money.currency
         guard postings.allSatisfy({ $0.money.currency == c }) else {
             throw LedgerError.mixedCurrencies

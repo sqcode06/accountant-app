@@ -136,6 +136,7 @@ private struct KeypadButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(key.accessibilityName)
+        .accessibilityIdentifier("amount.key.\(key.accessibilityName.lowercased())")
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true }

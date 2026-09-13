@@ -52,6 +52,37 @@ public struct Ledger: Sendable {
         transactions.append(tx)
     }
 
+    /// Validates a complete ledger reconstructed from stored or imported data.
+    ///
+    /// This differs deliberately from adding a new transaction. Historical
+    /// transactions may still point at archived accounts; archival hides an
+    /// account from new entry without invalidating the facts already recorded.
+    public func validate() throws {
+        var transactionIDs = Set<TransactionID>()
+
+        for account in accounts.values {
+            guard account.id.rawValue != Self.nilUUID else {
+                throw LedgerValidationError.invalidAccountID(account.id)
+            }
+
+            if let currency = account.currency, !currency.hasValidCode {
+                throw LedgerError.invalidCurrencyCode(currency.code)
+            }
+        }
+
+        for transaction in transactions {
+            guard transaction.id.rawValue != Self.nilUUID else {
+                throw LedgerValidationError.invalidTransactionID(transaction.id)
+            }
+            guard transactionIDs.insert(transaction.id).inserted else {
+                throw LedgerError.duplicateTransactionID(transaction.id)
+            }
+
+            try transaction.validate()
+            try ensureHistoricalPostingsAreValid(for: transaction)
+        }
+    }
+
     public mutating func updateDraftTransaction(
         id: TransactionID,
         now: Date = Date(),
@@ -223,6 +254,24 @@ public struct Ledger: Sendable {
         }
     }
 
+    private func ensureHistoricalPostingsAreValid(for tx: Transaction) throws {
+        for posting in tx.postings {
+            guard let account = accounts[posting.accountID] else {
+                throw LedgerError.unknownAccount(posting.accountID)
+            }
+
+            if let declared = account.currency, declared != posting.money.currency {
+                throw LedgerError.accountCurrencyMismatch(
+                    posting.accountID,
+                    expected: declared,
+                    actual: posting.money.currency
+                )
+            }
+        }
+    }
+
+    private static let nilUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+
     // MARK: - Internal hooks (module-only)
 
     internal mutating func _setAccount(_ account: Account) {
@@ -277,7 +326,16 @@ extension Ledger: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let accountsArray = try c.decode([Account].self, forKey: .accounts)
-        self.accounts = Dictionary(uniqueKeysWithValues: accountsArray.map { ($0.id, $0) })
+
+        var decodedAccounts: [AccountID: Account] = [:]
+        for account in accountsArray {
+            guard decodedAccounts.updateValue(account, forKey: account.id) == nil else {
+                throw LedgerValidationError.duplicateAccountID(account.id)
+            }
+        }
+
+        self.accounts = decodedAccounts
         self.transactions = try c.decode([Transaction].self, forKey: .transactions)
+        try validate()
     }
 }

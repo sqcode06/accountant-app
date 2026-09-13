@@ -133,6 +133,7 @@ struct ReviewView: View {
         .buttonStyle(.plain)
         .disabled(isConfirming)
         .padding(.vertical, Metrics.Space.s)
+        .accessibilityIdentifier("review.confirmAll")
     }
 
     private var allClear: some View {

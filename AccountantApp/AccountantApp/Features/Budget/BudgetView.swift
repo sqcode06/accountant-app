@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import AccountantCore
 
 /// Spending against monthly limits.
@@ -9,10 +10,11 @@ import AccountantCore
 /// stop opening, which is the only real failure mode for a budget.
 struct BudgetView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appClock) private var clock
 
-    @State private var period = BudgetPeriod.containing(Date())
-    @State private var editingCategory: EditableCategory?
-    @State private var isPresentingCategoryPicker = false
+    @State private var months = BudgetMonthSelection()
+    @State private var presentedSheet: BudgetSheet?
 
     /// The report and the category list are built once here and passed down.
     ///
@@ -26,44 +28,54 @@ struct BudgetView: View {
         let report = appState.budgetReport(for: period)
         let categories = budgetableCategories
 
-        return Group {
-            if report.lines.isEmpty && report.unbudgeted.isEmpty {
-                emptyState(hasCategories: !categories.isEmpty)
-            } else {
-                content(report)
-            }
-        }
+        return content(report, hasCategories: !categories.isEmpty)
         .navigationTitle("Budget")
+        .onAppear { months.refresh(now: clock.now()) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { months.refresh(now: clock.now()) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            months.refresh(now: clock.now())
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    isPresentingCategoryPicker = true
+                    presentedSheet = .categoryPicker
                 } label: {
                     Label("Set a limit", systemImage: "plus")
                 }
                 .disabled(categories.isEmpty)
+                .accessibilityIdentifier("budget.setLimit.toolbar")
             }
         }
-        .sheet(isPresented: $isPresentingCategoryPicker) {
-            BudgetCategoryPicker(categories: categories) { category in
-                isPresentingCategoryPicker = false
-                editingCategory = EditableCategory(account: category)
+        .sheet(item: $presentedSheet) { sheet in
+            switch sheet {
+            case .categoryPicker:
+                BudgetCategoryPicker(categories: categories) { category in
+                    presentedSheet = .editor(
+                        EditableCategory(account: category, period: period)
+                    )
+                }
+            case let .editor(editable):
+                BudgetTargetEditor(
+                    category: editable.account,
+                    period: editable.period,
+                    currentAmount: appState.budget.target(
+                        for: editable.id,
+                        in: editable.period
+                    )?.amount
+                )
+                .environmentObject(appState)
             }
-        }
-        .sheet(item: $editingCategory) { editable in
-            BudgetTargetEditor(
-                category: editable.account,
-                period: period,
-                currentAmount: appState.budget.target(for: editable.id, in: period)?.amount
-            )
-            .environmentObject(appState)
         }
     }
 
     // MARK: - Content
 
-    private func content(_ report: BudgetReport) -> some View {
+    private func content(_ report: BudgetReport, hasCategories: Bool) -> some View {
         List {
+            // Keep navigation visible even when the selected month has no data.
+            // Otherwise browsing before the first limit strands the user there.
             Section {
                 monthHeader(report)
                     .listRowInsets(EdgeInsets())
@@ -71,12 +83,24 @@ struct BudgetView: View {
                     .listRowSeparator(.hidden)
             }
 
+            if report.lines.isEmpty && report.unbudgeted.isEmpty {
+                Section {
+                    emptyState(hasCategories: hasCategories)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
             if !report.lines.isEmpty {
                 Section("Categories") {
                     ForEach(report.lines, id: \.account.id) { line in
                         BudgetLineRow(line: line)
                             .contentShape(Rectangle())
-                            .onTapGesture { editingCategory = EditableCategory(account: line.account) }
+                            .onTapGesture {
+                                presentedSheet = .editor(
+                                    EditableCategory(account: line.account, period: period)
+                                )
+                            }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
                                     Task {
@@ -97,7 +121,9 @@ struct BudgetView: View {
                 Section {
                     ForEach(report.unbudgeted, id: \.account.id) { line in
                         Button {
-                            editingCategory = EditableCategory(account: line.account)
+                            presentedSheet = .editor(
+                                EditableCategory(account: line.account, period: period)
+                            )
                         } label: {
                             HStack {
                                 Text(line.account.name)
@@ -127,28 +153,46 @@ struct BudgetView: View {
         VStack(alignment: .leading, spacing: Metrics.Space.l) {
             HStack {
                 Button {
-                    period = period.previous
+                    months.showPrevious()
                 } label: {
                     Image(systemName: "chevron.left")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .accessibilityLabel("Previous month")
 
                 Spacer()
 
                 Text(monthTitle)
                     .font(.uiTitle)
                     .foregroundStyle(Theme.ink)
+                    .accessibilityIdentifier("budget.month.title")
 
                 Spacer()
 
                 Button {
-                    period = period.next
+                    months.showNext()
                 } label: {
                     Image(systemName: "chevron.right")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .disabled(period >= BudgetPeriod.containing(Date()))
+                .accessibilityLabel("Next month")
+                .disabled(!months.canMoveForward)
             }
             .font(.system(.subheadline, weight: .semibold))
             .foregroundStyle(Theme.accent)
+
+            if !months.isCurrent {
+                HStack {
+                    Text("Viewing a past month")
+                        .foregroundStyle(Theme.inkMuted)
+                    Spacer()
+                    Button("Back to this month") { months.showCurrent() }
+                        .foregroundStyle(Theme.accent)
+                }
+                .font(.uiCaption)
+            }
 
             if report.lines.isEmpty {
                 Text("No limits set for this month.")
@@ -161,6 +205,7 @@ struct BudgetView: View {
                     role: report.totalRemaining.amount < .zero ? .balance : .plain,
                     font: .figureHero
                 )
+                .accessibilityIdentifier("budget.total.remaining")
 
                 BudgetBar(
                     progress: overallProgress(report),
@@ -174,34 +219,45 @@ struct BudgetView: View {
                 }
                 .font(.uiCaption)
                 .foregroundStyle(Theme.inkMuted)
+
+                Text("Includes draft and confirmed spending.")
+                    .font(.uiCaption)
+                    .foregroundStyle(Theme.inkMuted)
             }
         }
+        // Automatic List buttons can make the whole row activate its buttons.
+        // Each month control must respond only to a tap on that control.
+        .buttonStyle(.borderless)
         .heroCard()
         .padding(.vertical, Metrics.Space.s)
     }
 
     private func emptyState(hasCategories: Bool) -> some View {
         ContentUnavailableView {
-            Label("No budget yet", systemImage: "chart.bar")
+            Label("No budget for this month", systemImage: "chart.bar")
         } description: {
-            Text("Set a monthly limit on the categories you want to keep an eye on. You do not need to budget everything — start with the two or three that get away from you.")
+            Text("Set a limit on the categories you want to keep an eye on. Limits repeat every month from their start month until you change or stop them.")
         } actions: {
             Button {
-                isPresentingCategoryPicker = true
+                presentedSheet = .categoryPicker
             } label: {
                 Label("Set a limit", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
             .disabled(!hasCategories)
+            .accessibilityIdentifier("budget.setLimit.empty")
         }
     }
 
     // MARK: - Derived
 
+    private var period: BudgetPeriod { months.selected }
+
     /// Leads with what remains. Flips to the overspend only once there is one,
     /// where the honest number is the one worth showing.
     private func headlineLabel(_ report: BudgetReport) -> String {
-        report.totalRemaining.amount < .zero ? "Over budget" : "Left this month"
+        if report.totalRemaining.amount < .zero { return "Over budget" }
+        return months.isCurrent ? "Left this month" : "Left in \(monthTitle)"
     }
 
     private func headlineMoney(_ report: BudgetReport) -> Money {
@@ -214,11 +270,11 @@ struct BudgetView: View {
     private func overallProgress(_ report: BudgetReport) -> Double {
         guard report.totalTarget.amount > .zero else { return 0 }
 
-        return max(
-            0,
-            (report.totalSpent.amount as NSDecimalNumber).doubleValue
-                / (report.totalTarget.amount as NSDecimalNumber).doubleValue
-        )
+        let progress = (report.totalSpent.amount as NSDecimalNumber).doubleValue
+            / (report.totalTarget.amount as NSDecimalNumber).doubleValue
+
+        guard progress.isFinite else { return progress > 0 ? 1 : 0 }
+        return max(0, progress)
     }
 
     private var monthTitle: String {
@@ -230,6 +286,20 @@ struct BudgetView: View {
         appState.ledger.accounts.values
             .filter { $0.status == .active && $0.kind.isBudgetable }
             .sortedForDisplay()
+    }
+}
+
+private enum BudgetSheet: Identifiable {
+    case categoryPicker
+    case editor(EditableCategory)
+
+    var id: String {
+        switch self {
+        case .categoryPicker:
+            return "category-picker"
+        case let .editor(editable):
+            return "editor-\(editable.id.rawValue.uuidString)-\(editable.period.year)-\(editable.period.month)"
+        }
     }
 }
 
@@ -250,12 +320,15 @@ private struct BudgetLineRow: View {
                 Text(statusText)
                     .font(.uiLabel)
                     .foregroundStyle(statusColor)
+                    .accessibilityIdentifier("budget.line.remaining")
             }
 
             BudgetBar(progress: line.progress, isOverspent: line.isOverspent)
+                .accessibilityIdentifier("budget.line.progress")
 
             HStack {
                 Text(MoneyDisplay.string(line.spent))
+                    .accessibilityIdentifier("budget.line.spent")
                 Spacer()
                 Text("of \(MoneyDisplay.string(line.target))")
             }
@@ -298,6 +371,7 @@ private struct BudgetCategoryPicker: View {
                         .font(.uiRowTitle)
                         .foregroundStyle(Theme.ink)
                 }
+                .accessibilityIdentifier("budget.category.\(category.id.rawValue.uuidString)")
             }
             .navigationTitle("Which category?")
             .navigationBarTitleDisplayMode(.inline)
@@ -318,5 +392,7 @@ private struct BudgetCategoryPicker: View {
 /// redeclaration — and rude, since it would collide the day the core adds its own.
 struct EditableCategory: Identifiable {
     let account: Account
+    /// Keep an open editor on the month it was opened for across date changes.
+    let period: BudgetPeriod
     var id: AccountID { account.id }
 }

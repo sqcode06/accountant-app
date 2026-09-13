@@ -31,7 +31,8 @@ struct LocalJSONClassificationRuleRepository: ClassificationRuleRepository {
     func loadOrCreate() async throws -> [ClassificationRuleConfiguration] {
         switch await load() {
         case let .loaded(rules): return rules
-        case .empty, .unreadable: return []
+        case .empty: return []
+        case .unreadable: throw StoreRecoveryError.recoveryUnresolved
         }
     }
 
@@ -45,27 +46,23 @@ struct LocalJSONClassificationRuleRepository: ClassificationRuleRepository {
     }
 
     func save(_ rules: [ClassificationRuleConfiguration]) async throws {
-        let fileURL = fileURL
-
+        let store = store
         try await Task.detached(priority: .utility) {
-            let directory = fileURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-
-            let data = try Self.encoder.encode(rules)
-            try data.write(to: fileURL, options: [.atomic])
+            try store.save(rules)
         }.value
     }
 
-    private static var encoder: JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return encoder
+    func replaceForRecovery(_ rules: [ClassificationRuleConfiguration]) async throws {
+        let store = store
+        try await Task.detached(priority: .utility) {
+            try store.replaceForRecovery(rules)
+        }.value
     }
 
-    private static var decoder: JSONDecoder {
-        JSONDecoder()
+    func completeRecovery() async throws {
+        let store = store
+        try await Task.detached(priority: .utility) {
+            try store.completeRecovery()
+        }.value
     }
 }

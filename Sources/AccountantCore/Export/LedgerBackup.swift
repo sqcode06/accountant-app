@@ -57,6 +57,107 @@ public struct LedgerBackup: Codable, Sendable, Equatable {
             forKey: .classificationRules
         ) ?? []
     }
+
+    /// Checks a backup immediately before it is allowed to replace live data.
+    ///
+    /// `LedgerBackupCoder.decode` calls this automatically. It is public as well
+    /// because tests and app integrations can construct a `LedgerBackup` directly,
+    /// bypassing the document decoder.
+    public func validateForRestore() throws {
+        guard formatVersion == Self.currentFormatVersion else {
+            throw LedgerBackupError.unsupportedFormatVersion(formatVersion)
+        }
+
+        try ledger.validate()
+        try validateBudget()
+        try validateClassificationRuleIdentities()
+    }
+
+    private func validateBudget() throws {
+        var targetIDs = Set<BudgetTargetID>()
+        var targetsByAccount: [AccountID: [BudgetTarget]] = [:]
+
+        for target in budget.targets {
+            guard target.id.rawValue != Self.nilUUID else {
+                throw LedgerBackupValidationError.invalidBudgetTargetID(target.id)
+            }
+            guard targetIDs.insert(target.id).inserted else {
+                throw LedgerBackupValidationError.duplicateBudgetTargetID(target.id)
+            }
+            guard !target.amount.amount.isNaN, target.amount.amount > .zero else {
+                throw LedgerBackupValidationError.invalidBudgetAmount(target.id)
+            }
+            guard target.amount.currency.hasValidCode else {
+                throw LedgerError.invalidCurrencyCode(target.amount.currency.code)
+            }
+            guard target.effectiveFrom.month >= 1, target.effectiveFrom.month <= 12,
+                  target.effectiveUntil.map({ $0.month >= 1 && $0.month <= 12 }) ?? true,
+                  target.effectiveUntil.map({ $0 >= target.effectiveFrom }) ?? true else {
+                throw LedgerBackupValidationError.invalidBudgetRange(target.id)
+            }
+            guard let account = ledger.accounts[target.accountID] else {
+                throw LedgerBackupValidationError.unknownBudgetAccount(target.accountID)
+            }
+            guard account.kind.isBudgetable else {
+                throw LedgerBackupValidationError.accountNotBudgetable(target.accountID)
+            }
+
+            targetsByAccount[target.accountID, default: []].append(target)
+        }
+
+        for targets in targetsByAccount.values {
+            let ordered = targets.sorted { $0.effectiveFrom < $1.effectiveFrom }
+            for (earlier, later) in zip(ordered, ordered.dropFirst()) {
+                if earlier.effectiveUntil.map({ $0 >= later.effectiveFrom }) ?? true {
+                    throw LedgerBackupValidationError.overlappingBudgetTargets(
+                        accountID: earlier.accountID,
+                        first: earlier.id,
+                        second: later.id
+                    )
+                }
+            }
+        }
+    }
+
+    private func validateClassificationRuleIdentities() throws {
+        var ruleIDs = Set<UUID>()
+
+        for rule in classificationRules {
+            guard rule.id != Self.nilUUID else {
+                throw LedgerBackupValidationError.invalidClassificationRuleID(rule.id)
+            }
+            guard ruleIDs.insert(rule.id).inserted else {
+                throw LedgerBackupValidationError.duplicateClassificationRuleID(rule.id)
+            }
+            if let accountID = rule.counterpartyAccountID,
+               accountID.rawValue == Self.nilUUID {
+                throw LedgerBackupValidationError.invalidClassificationAccountID(accountID)
+            }
+        }
+
+        // A nonzero rule reference may be stale after "Remove unused accounts".
+        // The app deliberately retains that rule and filters it at use time, so
+        // rejecting such backups would strand a supported historical state.
+    }
+
+    private static let nilUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+}
+
+public enum LedgerBackupValidationError: Error, Equatable, Sendable {
+    case invalidBudgetTargetID(BudgetTargetID)
+    case duplicateBudgetTargetID(BudgetTargetID)
+    case invalidBudgetAmount(BudgetTargetID)
+    case invalidBudgetRange(BudgetTargetID)
+    case unknownBudgetAccount(AccountID)
+    case accountNotBudgetable(AccountID)
+    case overlappingBudgetTargets(
+        accountID: AccountID,
+        first: BudgetTargetID,
+        second: BudgetTargetID
+    )
+    case invalidClassificationRuleID(UUID)
+    case duplicateClassificationRuleID(UUID)
+    case invalidClassificationAccountID(AccountID)
 }
 
 /// What a backup file says about itself, without committing to restoring it.
@@ -123,11 +224,12 @@ public enum LedgerBackupCoder {
             throw LedgerBackupError.unreadable
         }
 
-        // Checked after decoding rather than by peeking at the version first: a
-        // newer file may well decode fine, and the honest reason to refuse it is
-        // that this app does not know what it might mean, not that it choked.
-        guard backup.formatVersion <= LedgerBackup.currentFormatVersion else {
-            throw LedgerBackupError.unsupportedFormatVersion(backup.formatVersion)
+        do {
+            try backup.validateForRestore()
+        } catch let error as LedgerBackupError {
+            throw error
+        } catch {
+            throw LedgerBackupError.unreadable
         }
 
         return backup

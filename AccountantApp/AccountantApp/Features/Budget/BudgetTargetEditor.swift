@@ -75,13 +75,15 @@ struct BudgetTargetEditor: View {
             .buttonStyle(.plain)
             .disabled(entry.isEmpty || isSaving)
             .opacity(entry.isEmpty || isSaving ? 0.4 : 1)
+            .accessibilityIdentifier("budget.limit.save")
 
             // Says which month it takes effect from, because changing a limit does
             // not silently rewrite the months already behind you.
-            Text("Applies from \(monthTitle) onward. Earlier months keep the limit they had.")
+            Text("Repeats every month from \(monthTitle). Earlier months keep the limit they had.")
                 .font(.uiCaption)
                 .foregroundStyle(Theme.inkMuted)
                 .multilineTextAlignment(.center)
+                .accessibilityIdentifier("budget.limit.scope")
         }
     }
 

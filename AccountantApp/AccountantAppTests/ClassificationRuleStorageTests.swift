@@ -47,6 +47,7 @@ struct ClassificationRuleStorageTests {
             counterpartyAccountID: fixture.groceries.id,
             cleanedMemo: "  Rimi  "
         )
+        await appState.flushPendingWrites()
 
         #expect(success)
         #expect(appState.classificationRules.count == 1)

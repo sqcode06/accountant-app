@@ -36,9 +36,12 @@ The split is deliberate and load-bearing. Every accounting rule is in the packag
 
 ## Status
 
-The app builds and runs. It is usable day to day and is not yet something to put on the App Store.
+The app is undergoing a reliability pass after iPhone testing exposed budget
+interaction and data-recovery problems. The current changes need native build
+and simulator evidence before being treated as a dependable baseline. See the
+[reliability status and remaining repairs](docs/AppReliabilityPlan.md).
 
-**Working:**
+**Implemented workflows (verification is still in progress):**
 
 - four-tab structure: Overview, Activity, Budget, Settings, with a capture button in the middle;
 - quick capture — type an amount, tap a category, two gestures, everything lands as a draft;
@@ -59,7 +62,11 @@ The app builds and runs. It is usable day to day and is not yet something to put
 - recurring transactions;
 - charts.
 
-**Verified how:** the core has 270 XCTest plus 3 Swift Testing tests, all runnable on Linux. The app target's tests need Xcode. See [`docs/AppTesting.md`](docs/AppTesting.md).
+**Verified how:** the core tests run on Linux and Windows. A separate macOS
+workflow now builds the iOS app and runs its native test plan, including the
+first budget/capture/confirmation UI workflow. Configuration alone does not
+establish that a candidate passed; check the run for the revision being built.
+See [`docs/AppTesting.md`](docs/AppTesting.md).
 
 Architecture notes for the app layer: [`docs/AppArchitecture.md`](docs/AppArchitecture.md). Redesign working notes: [`docs/Redesign.md`](docs/Redesign.md). Voice and palette: [`docs/Brand.md`](docs/Brand.md).
 
@@ -489,7 +496,11 @@ Current persistence is intentionally simple:
 
 This is good enough for the core MVP and early app prototypes. SQLite, CloudKit, or other storage layers can be added later without changing the accounting model.
 
-An unreadable file is **quarantined rather than overwritten**: it is renamed aside before the load returns, and the app refuses every write until the user chooses to start fresh or retry. That path is the one that used to silently destroy data, so it is tested from both ends.
+An unreadable file is **protected rather than overwritten**. A durable recovery
+record is written before moving its bytes aside, and normal saves remain
+blocked across retries and relaunches. Explicit recovery keeps those originals
+and unlocks only after the replacement data is saved. Restore and erase from a
+previously healthy state still need a coherent transaction across all files.
 
 `LedgerBackup` is the export format — ledger, budget and classification rules in one document, with its own format version separate from the ledger schema version. `LedgerExport` writes the same data as CSV for spreadsheets. Both share the store's date strategy, because a backup written with a different encoding is one this app cannot read back.
 
@@ -605,13 +616,17 @@ Things we care about:
 
 ## What to work on next
 
-In rough order of how much it matters:
+Finish the [reliability plan](docs/AppReliabilityPlan.md) before adding features:
 
-1. **A clean LHV export.** The LHV preset's column names are a guess made from a copy-pasted sample whose columns were shifted, and every row was correctly rejected. Swedbank and Revolut are verified against real files.
-2. **Reminders on a real device.** The logic is tested, but permission prompts, delivery and the Settings toggle have only been checked by inspection.
-3. **Sync.** The merge rules are done and tested. What is missing is a transport and the UX around conflicts.
-4. **Recurring transactions.** Rent and subscriptions are the entries most worth not typing every month.
-5. **Charts.** Deliberately last. A budget app earns trust by being right before it earns attention by being pretty.
+1. Verify the actual iOS build and native test suite on the candidate revision.
+2. Make restore/erase use one coherent saved state and give Stop an awaited
+   completion result; test failures and interruption around every write.
+3. Verify the reported budget interactions on identified simulator/device
+   builds. The historical Stop exit still has no established cause.
+4. Repair CSV precision and reminder delivery, permission refresh, and both
+   confirmation routes; finish checks of the existing workflows.
+5. Validate the LHV import preset against a clean export. Swedbank and Revolut
+   already have real-file evidence; LHV's current columns are still provisional.
 
 Longer-term and deliberately not started: OCR receipts, bank API integration, learned classification, multi-currency conversion, SQLite.
 

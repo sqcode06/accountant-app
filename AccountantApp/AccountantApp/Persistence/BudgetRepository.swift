@@ -4,12 +4,17 @@ import AccountantCore
 protocol BudgetRepository: Sendable {
     func loadOrCreate() async throws -> Budget
     func save(_ budget: Budget) async throws
+    func replaceForRecovery(_ budget: Budget) async throws
+    func completeRecovery() async throws
 
     /// See `LedgerRepository.load()` — same reason, same shape.
     func load() async -> StoreLoadOutcome<Budget>
 }
 
 extension BudgetRepository {
+    func replaceForRecovery(_ budget: Budget) async throws { try await save(budget) }
+    func completeRecovery() async throws {}
+
     func load() async -> StoreLoadOutcome<Budget> {
         guard let budget = try? await loadOrCreate() else { return .empty }
         return .loaded(budget)
@@ -49,7 +54,8 @@ struct LocalJSONBudgetRepository: BudgetRepository {
     func loadOrCreate() async throws -> Budget {
         switch await load() {
         case let .loaded(budget): return budget
-        case .empty, .unreadable: return Budget()
+        case .empty: return Budget()
+        case .unreadable: throw StoreRecoveryError.recoveryUnresolved
         }
     }
 
@@ -64,18 +70,23 @@ struct LocalJSONBudgetRepository: BudgetRepository {
     }
 
     func save(_ budget: Budget) async throws {
-        let fileURL = fileURL
-
+        let store = store
         try await Task.detached(priority: .utility) {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
+            try store.save(budget)
+        }.value
+    }
 
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    func replaceForRecovery(_ budget: Budget) async throws {
+        let store = store
+        try await Task.detached(priority: .utility) {
+            try store.replaceForRecovery(budget)
+        }.value
+    }
 
-            try encoder.encode(budget).write(to: fileURL, options: [.atomic])
+    func completeRecovery() async throws {
+        let store = store
+        try await Task.detached(priority: .utility) {
+            try store.completeRecovery()
         }.value
     }
 }

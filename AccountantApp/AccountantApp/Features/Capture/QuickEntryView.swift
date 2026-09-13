@@ -14,6 +14,7 @@ import AccountantCore
 struct QuickEntryView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appClock) private var clock
 
     @State private var entry = AmountEntry()
     @State private var selectedAccountID: AccountID?
@@ -163,7 +164,7 @@ struct QuickEntryView: View {
                 paidFrom: selectedAccountID,
                 category: category.id,
                 amount: entry.money(in: currency),
-                date: Date(),
+                date: clock.now(),
                 memo: nil
             )
 
@@ -267,6 +268,7 @@ private struct CategoryChip: View {
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.35)
         .animation(.easeOut(duration: 0.15), value: isEnabled)
+        .accessibilityIdentifier("capture.category.\(name)")
     }
 }
 

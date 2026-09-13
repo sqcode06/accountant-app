@@ -337,6 +337,46 @@ final class BudgetTests: XCTestCase {
         XCTAssertEqual(excluded.lines.first?.spent.amount, Decimal.zero)
     }
 
+    func testMonthlyLimitRepeatsWhileDraftAndConfirmedSpendingStayInTheirMonth() throws {
+        var fixture = makeFixture()
+        var budget = Budget()
+        try budget.setTarget(
+            amount: Money(20, currency: eur),
+            for: fixture.eatingOut.id,
+            from: august,
+            in: fixture.ledger
+        )
+
+        let transactionID = try spend(
+            Decimal(10) / 100, on: fixture.eatingOut, from: fixture.bank,
+            day: 13, month: 9, in: &fixture.ledger, finalize: false
+        )
+        let september = august.next
+        let draftReport = fixture.ledger.budgetReport(
+            budget: budget, period: september, currency: eur, calendar: utc
+        )
+        XCTAssertEqual(draftReport.totalTarget.amount, 20)
+        XCTAssertEqual(draftReport.totalSpent.amount, Decimal(10) / 100)
+        XCTAssertEqual(draftReport.totalRemaining.amount, Decimal(1990) / 100)
+
+        try fixture.ledger.finalizeTransaction(id: transactionID)
+        XCTAssertEqual(
+            fixture.ledger.budgetReport(
+                budget: budget, period: september, currency: eur, calendar: utc
+            ),
+            draftReport
+        )
+
+        for month in [august, september.next] {
+            let report = fixture.ledger.budgetReport(
+                budget: budget, period: month, currency: eur, calendar: utc
+            )
+            XCTAssertEqual(report.totalTarget.amount, 20)
+            XCTAssertEqual(report.totalSpent.amount, 0)
+            XCTAssertEqual(report.totalRemaining.amount, 20)
+        }
+    }
+
     func testRefundReducesSpendingAndNeverDrivesProgressNegative() throws {
         var fixture = makeFixture()
         var budget = Budget()

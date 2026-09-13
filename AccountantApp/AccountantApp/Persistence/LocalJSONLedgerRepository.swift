@@ -50,4 +50,16 @@ struct LocalJSONLedgerRepository: LedgerRepository {
             try store.save(ledger)
         }.value
     }
+
+    func replaceForRecovery(_ ledger: Ledger) async throws {
+        try await Task.detached(priority: .utility) {
+            try store.replaceForRecovery(ledger)
+        }.value
+    }
+
+    func completeRecovery() async throws {
+        try await Task.detached(priority: .utility) {
+            try store.completeRecovery()
+        }.value
+    }
 }

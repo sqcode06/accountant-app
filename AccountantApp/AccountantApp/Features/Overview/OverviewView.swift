@@ -8,6 +8,7 @@ import AccountantCore
 /// and the accounts holding them in two different places.
 struct OverviewView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.appClock) private var clock
 
     @State private var isPresentingEntry = false
     @State private var isPresentingNewAccount = false
@@ -98,6 +99,7 @@ struct OverviewView: View {
                         }
                         .padding(.vertical, Metrics.Space.xs)
                     }
+                    .accessibilityIdentifier("review.open")
                 }
             }
 
@@ -177,7 +179,8 @@ struct OverviewView: View {
     private var snapshot: OverviewSnapshot {
         OverviewSnapshot.make(
             from: appState.ledger,
-            fallbackCurrency: appState.displayCurrency
+            fallbackCurrency: appState.displayCurrency,
+            now: clock.now()
         )
     }
 }
