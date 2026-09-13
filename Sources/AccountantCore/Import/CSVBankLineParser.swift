@@ -225,10 +225,22 @@ public struct CSVBankLineParser: BankLineParser {
             signColumn: signColumn
         )
 
-        let fee = feeColumn
-            .map { value(in: row, at: $0) }
-            .flatMap { $0.isEmpty ? nil : DecimalParsing.decimal(from: $0) }
-            .map { $0 < .zero ? -$0 : $0 }
+        let fee: Decimal?
+        if let feeColumn {
+            let feeText = value(in: row, at: feeColumn)
+            if feeText.isEmpty {
+                fee = nil
+            } else {
+                let parsedFee = try parseAmount(
+                    feeText,
+                    row: row.rowNumber,
+                    column: columns.fee ?? "fee"
+                )
+                fee = parsedFee < .zero ? -parsedFee : parsedFee
+            }
+        } else {
+            fee = nil
+        }
 
         return BankLine(
             date: date,

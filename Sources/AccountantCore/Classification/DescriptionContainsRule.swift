@@ -22,9 +22,13 @@ public struct DescriptionContainsRule: ClassificationRule {
         line: BankLine,
         current transaction: Transaction
     ) -> ClassificationSuggestion? {
+        suggestion(matching: line.description)
+    }
+
+    func suggestion(matching description: String) -> ClassificationSuggestion? {
         guard !normalizedNeedle.isEmpty else { return nil }
 
-        let haystack = line.description.lowercased()
+        let haystack = description.lowercased()
         guard haystack.contains(normalizedNeedle) else { return nil }
 
         let suggestion = ClassificationSuggestion(

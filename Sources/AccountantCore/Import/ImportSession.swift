@@ -200,7 +200,7 @@ private func existingTransactionID(
     ledger.transactions.first { $0.origin == origin }?.id
 }
 
-private func firstAccountError(
+func firstAccountError(
     in transaction: Transaction,
     ledger: Ledger
 ) -> ImportError? {

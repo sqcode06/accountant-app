@@ -48,7 +48,7 @@ and simulator evidence before being treated as a dependable baseline. See the
 - an evening review queue where drafts get checked and confirmed as a batch;
 - budgets: monthly limits per category, with unbudgeted spending shown rather than hidden;
 - statement import from a file, with presets for Swedbank, LHV and Revolut;
-- deterministic classification rules applied at import;
+- deterministic import rules that can be edited, paused, ordered, and tried against sample statement text;
 - reconciliation against a statement balance, by ticking entries off;
 - six themes and matching alternate app icons;
 - an onboarding guide, a danger zone, and per-account currency;
@@ -381,7 +381,9 @@ let preview = pipeline.previewImport(
 )
 ```
 
-Only proposed drafts are classified. Skipped duplicates and failed import outcomes remain untouched. Existing import warnings, such as missing external IDs, are preserved.
+Only proposed drafts are classified. Skipped duplicates and failed import outcomes remain untouched. Existing import warnings, such as missing external IDs, are preserved. The preview keeps the original category and memo beside the proposed values and names the rule that matched, so a change can be reviewed before it becomes a draft.
+
+Stored rules match any case-insensitive substring of a statement description. They run in their saved order; when several rules match, the later matching rule wins for each field it sets. In Settings, a rule can be edited, paused, reordered, or tried against sample text. A paused rule, or one aimed at a missing or archived category, does not run. Saving a rule waits for its rule-storage write to complete, so the screen can keep an unsuccessful edit for retry rather than silently treating it as saved.
 
 Classification is deliberately not machine learning yet. The current goal is explainable, deterministic, testable bookkeeping assistance.
 

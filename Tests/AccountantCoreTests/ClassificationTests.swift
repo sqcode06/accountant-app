@@ -367,6 +367,71 @@ final class ClassificationTests: XCTestCase {
         }
     }
 
+    func testApplyingSuggestionUsesTaggedCounterpartyAndPreservesPostingMetadata() throws {
+        let fixture = makeFixture()
+        let fees = Account(name: "Fees", kind: .expense)
+        let tagged = Transaction.draft(
+            date: Date(timeIntervalSince1970: 100),
+            memo: "Tagged import",
+            postings: [
+                Posting(
+                    accountID: fixture.bank.id,
+                    money: Money(Decimal(string: "-12.50")!, currency: fixture.eur),
+                    cleared: true,
+                    role: .statement
+                ),
+                Posting(
+                    accountID: fixture.uncategorized.id,
+                    money: Money(Decimal(12), currency: fixture.eur),
+                    cleared: true,
+                    role: .counterparty
+                ),
+                Posting(
+                    accountID: fees.id,
+                    money: Money(Decimal(string: "0.50")!, currency: fixture.eur),
+                    cleared: true,
+                    role: .fee
+                )
+            ]
+        )
+
+        let updated = try ClassificationSuggestion(counterpartyAccountID: fixture.groceries.id)
+            .applying(to: tagged, statementAccountID: fixture.bank.id)
+
+        XCTAssertEqual(updated.postings[1].accountID, fixture.groceries.id)
+        XCTAssertEqual(updated.postings[1].money, tagged.postings[1].money)
+        XCTAssertTrue(updated.postings[1].cleared)
+        XCTAssertEqual(updated.postings[1].role, .counterparty)
+        XCTAssertEqual(updated.postings[2], tagged.postings[2])
+    }
+
+    func testApplyingSuggestionDoesNotTreatFeeAsCounterpartyInPartiallyTaggedTransaction() throws {
+        let fixture = makeFixture()
+        let taggedWithoutCounterparty = Transaction.draft(
+            date: Date(timeIntervalSince1970: 100),
+            memo: "Malformed tagged import",
+            postings: [
+                Posting(
+                    accountID: fixture.bank.id,
+                    money: Money(Decimal(-12), currency: fixture.eur),
+                    role: .statement
+                ),
+                Posting(
+                    accountID: fixture.food.id,
+                    money: Money(Decimal(12), currency: fixture.eur),
+                    role: .fee
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(
+            try ClassificationSuggestion(counterpartyAccountID: fixture.groceries.id)
+                .applying(to: taggedWithoutCounterparty, statementAccountID: fixture.bank.id)
+        ) { error in
+            XCTAssertEqual(error as? ClassificationError, .counterpartyPostingNotFound)
+        }
+    }
+
     private func makeFixture() -> ClassificationFixture {
         ClassificationFixture()
     }

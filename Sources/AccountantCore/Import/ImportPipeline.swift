@@ -81,8 +81,16 @@ public struct ImportPipeline {
 
         guard let fee = line.fee, fee != .zero else {
             return [
-                Posting(accountID: statementAccountID, money: Money(line.amount, currency: currency)),
-                Posting(accountID: defaultCounterpartyAccountID, money: Money(-line.amount, currency: currency))
+                Posting(
+                    accountID: statementAccountID,
+                    money: Money(line.amount, currency: currency),
+                    role: .statement
+                ),
+                Posting(
+                    accountID: defaultCounterpartyAccountID,
+                    money: Money(-line.amount, currency: currency),
+                    role: .counterparty
+                )
             ]
         }
 
@@ -91,9 +99,21 @@ public struct ImportPipeline {
         }
 
         return [
-            Posting(accountID: statementAccountID, money: Money(line.amount - fee, currency: currency)),
-            Posting(accountID: defaultCounterpartyAccountID, money: Money(-line.amount, currency: currency)),
-            Posting(accountID: feeAccountID, money: Money(fee, currency: currency))
+            Posting(
+                accountID: statementAccountID,
+                money: Money(line.amount - fee, currency: currency),
+                role: .statement
+            ),
+            Posting(
+                accountID: defaultCounterpartyAccountID,
+                money: Money(-line.amount, currency: currency),
+                role: .counterparty
+            ),
+            Posting(
+                accountID: feeAccountID,
+                money: Money(fee, currency: currency),
+                role: .fee
+            )
         ]
     }
 }

@@ -84,6 +84,95 @@ struct ClassificationRuleConfigurationTests {
         #expect(rule.cleanedMemo == "Groceries")
         #expect(rule.isEnabled)
     }
+
+    @Test func evaluationReportsOrderedMatchesAndIndependentFieldWinners() throws {
+        let fixture = ClassificationFixture()
+        let broadID = UUID()
+        let memoID = UUID()
+        let specificID = UUID()
+        let broad = ClassificationRuleConfiguration(
+            id: broadID,
+            name: "Any Bolt",
+            needle: "bolt",
+            counterpartyAccountID: fixture.groceries.id
+        )
+        let memo = ClassificationRuleConfiguration(
+            id: memoID,
+            name: "Clean Bolt Food memo",
+            needle: "bolt food",
+            cleanedMemo: "Bolt Food"
+        )
+        let specific = ClassificationRuleConfiguration(
+            id: specificID,
+            name: "Bolt Food category",
+            needle: "bolt food",
+            counterpartyAccountID: fixture.food.id
+        )
+
+        let evaluation = [broad, memo, specific].evaluate(
+            line: fixture.line(description: "BOLT FOOD TALLINN"),
+            current: fixture.draft
+        )
+
+        #expect(evaluation.matches.map(\.id) == [broadID, memoID, specificID])
+        #expect(evaluation.matches.map(\.name) == ["Any Bolt", "Clean Bolt Food memo", "Bolt Food category"])
+        #expect(evaluation.suggestion == ClassificationSuggestion(
+            counterpartyAccountID: fixture.food.id,
+            cleanedMemo: "Bolt Food"
+        ))
+        #expect(evaluation.counterpartyWinnerRuleID == specificID)
+        #expect(evaluation.memoWinnerRuleID == memoID)
+    }
+
+    @Test func evaluationOmitsDisabledNoEffectAndNonmatchingConfigurations() throws {
+        let fixture = ClassificationFixture()
+        let matchingID = UUID()
+        let configurations = [
+            ClassificationRuleConfiguration(
+                name: "Disabled",
+                needle: "bolt",
+                cleanedMemo: "Disabled",
+                isEnabled: false
+            ),
+            ClassificationRuleConfiguration(name: "No effect", needle: "bolt"),
+            ClassificationRuleConfiguration(name: "Different text", needle: "rimi", cleanedMemo: "Rimi"),
+            ClassificationRuleConfiguration(
+                id: matchingID,
+                name: "Match",
+                needle: "bolt",
+                cleanedMemo: "Bolt"
+            )
+        ]
+
+        let evaluation = configurations.evaluate(
+            line: fixture.line(description: "BOLT RIDE"),
+            current: fixture.draft
+        )
+
+        #expect(evaluation.matches.map(\.id) == [matchingID])
+        #expect(evaluation.suggestion == ClassificationSuggestion(cleanedMemo: "Bolt"))
+        #expect(evaluation.counterpartyWinnerRuleID == nil)
+        #expect(evaluation.memoWinnerRuleID == matchingID)
+    }
+
+    @Test func descriptionOnlyEvaluationMatchesLineEvaluation() throws {
+        let fixture = ClassificationFixture()
+        let configurations = [
+            ClassificationRuleConfiguration(
+                needle: "bolt",
+                counterpartyAccountID: fixture.food.id,
+                cleanedMemo: "Bolt"
+            )
+        ]
+
+        let lineEvaluation = configurations.evaluate(
+            line: fixture.line(description: "BOLT RIDE"),
+            current: fixture.draft
+        )
+        let descriptionEvaluation = configurations.evaluate(description: "BOLT RIDE")
+
+        #expect(descriptionEvaluation == lineEvaluation)
+    }
 }
 
 private struct ClassificationFixture {
@@ -93,6 +182,16 @@ private struct ClassificationFixture {
     let uncategorized = Account(name: "Uncategorized", kind: .clearing)
     let groceries = Account(name: "Groceries", kind: .expense)
     let food = Account(name: "Food Delivery", kind: .expense)
+
+    var draft: Transaction {
+        Transaction.draft(
+            memo: "Original",
+            postings: [
+                Posting(accountID: bank.id, money: Money(Decimal(-12), currency: eur)),
+                Posting(accountID: uncategorized.id, money: Money(Decimal(12), currency: eur))
+            ]
+        )
+    }
 
     var ledger: Ledger {
         var ledger = Ledger()

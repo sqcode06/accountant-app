@@ -29,6 +29,8 @@ struct ImportFlow: View {
     @State private var feeAccountID: AccountID?
 
     @State private var preview: ImportPreview?
+    // Keep explanations tied to the rules that produced this preview.
+    @State private var previewRules: [ClassificationRuleConfiguration] = []
     @State private var applyReport: ImportApplyReport?
 
     @State private var isPickingFile = false
@@ -53,6 +55,15 @@ struct ImportFlow: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(applyReport == nil ? "Cancel" : "Done") { dismiss() }
+                }
+                if step != .source && applyReport == nil {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Back") {
+                            step = step == .review ? .destination : .source
+                        }
+                        .disabled(isWorking)
+                        .accessibilityIdentifier("import.back")
+                    }
                 }
             }
             .appErrorAlert()
@@ -112,6 +123,7 @@ struct ImportFlow: View {
                         .padding(.vertical, Metrics.Space.xs)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("import.format.\(option.id)")
                 }
             } header: {
                 Text("Which bank?")
@@ -121,11 +133,12 @@ struct ImportFlow: View {
 
             Section {
                 Button {
-                    isPickingFile = true
+                    chooseFile()
                 } label: {
                     Label(fileName == nil ? "Choose a file" : "Choose a different file",
                           systemImage: "doc.badge.plus")
                 }
+                .accessibilityIdentifier("import.file")
 
                 if let fileName {
                     LabeledContent("File", value: fileName)
@@ -168,6 +181,7 @@ struct ImportFlow: View {
                                 cornerRadius: Metrics.Radius.control, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("import.continue")
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                 }
@@ -186,6 +200,7 @@ struct ImportFlow: View {
                     accounts: balanceAccounts,
                     selection: $statementAccountID
                 )
+                .accessibilityIdentifier("import.statementAccount")
             } footer: {
                 Text("The account this statement belongs to. Its balance is what these lines move.")
             }
@@ -196,8 +211,9 @@ struct ImportFlow: View {
                     accounts: categoryAccounts,
                     selection: $categoryAccountID
                 )
+                .accessibilityIdentifier("import.defaultCategory")
             } footer: {
-                Text("Where lines land when no rule matches. You can recategorise them during review.")
+                Text("The starting category for each line. A matching category rule can replace it. You can change categories in Review after importing.")
             }
 
             if format.columns.fee != nil {
@@ -207,6 +223,7 @@ struct ImportFlow: View {
                         accounts: categoryAccounts,
                         selection: $feeAccountID
                     )
+                    .accessibilityIdentifier("import.feeCategory")
                 } footer: {
                     Text("\(format.name) lists fees separately. Without somewhere to put them, lines carrying a fee will not import.")
                 }
@@ -225,6 +242,7 @@ struct ImportFlow: View {
                             cornerRadius: Metrics.Radius.control, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("import.preview")
                 .disabled(!canPreview || isWorking)
                 .opacity(canPreview && !isWorking ? 1 : 0.4)
                 .listRowInsets(EdgeInsets())
@@ -264,6 +282,8 @@ struct ImportFlow: View {
                             .font(.uiCaption)
                             .foregroundStyle(Theme.inkMuted)
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("import.result")
                     .heroCard()
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -275,10 +295,22 @@ struct ImportFlow: View {
                         .listRowBackground(Color.clear)
                 }
 
-                outcomeSection("Ready", preview.readyOutcomes, tint: Theme.cleared)
-                outcomeSection("With warnings", preview.warningOutcomes, tint: Theme.pending)
-                outcomeSection("Already imported", preview.duplicateOutcomes, tint: Theme.inkMuted)
-                outcomeSection("Not imported", preview.failedOutcomes, tint: Theme.deficit)
+                outcomeSection("Ready", in: preview, tint: Theme.cleared) {
+                    if case let .proposed(_, _, warnings) = $0 { return warnings.isEmpty }
+                    return false
+                }
+                outcomeSection("With warnings", in: preview, tint: Theme.pending) {
+                    if case let .proposed(_, _, warnings) = $0 { return !warnings.isEmpty }
+                    return false
+                }
+                outcomeSection("Already imported", in: preview, tint: Theme.inkMuted) {
+                    if case .skippedDuplicate = $0 { return true }
+                    return false
+                }
+                outcomeSection("Not imported", in: preview, tint: Theme.deficit) {
+                    if case .failed = $0 { return true }
+                    return false
+                }
 
                 if let rowErrors = parsed?.rowErrors, !rowErrors.isEmpty {
                     Section {
@@ -307,6 +339,7 @@ struct ImportFlow: View {
                                 cornerRadius: Metrics.Radius.control, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("import.apply")
                     .disabled(preview.importableCount == 0 || isWorking)
                     .opacity(preview.importableCount == 0 || isWorking ? 0.4 : 1)
                     .listRowInsets(EdgeInsets())
@@ -322,14 +355,18 @@ struct ImportFlow: View {
     @ViewBuilder
     private func outcomeSection(
         _ title: String,
-        _ outcomes: [ImportLineOutcome],
-        tint: Color
+        in preview: ImportPreview,
+        tint: Color,
+        matching: (ImportLineOutcome) -> Bool
     ) -> some View {
-        if !outcomes.isEmpty {
+        let indices = preview.outcomes.indices.filter { matching(preview.outcomes[$0]) }
+        if !indices.isEmpty {
             Section {
-                ForEach(Array(outcomes.enumerated()), id: \.offset) { _, outcome in
+                ForEach(indices, id: \.self) { index in
                     ImportOutcomeRow(
-                        outcome: outcome,
+                        index: index,
+                        outcome: preview.outcomes[index],
+                        evaluation: previewRules.evaluate(description: preview.outcomes[index].line.description),
                         accounts: appState.ledger.accounts
                     )
                 }
@@ -337,7 +374,7 @@ struct ImportFlow: View {
                 HStack {
                     Text(title)
                     Spacer()
-                    Text("\(outcomes.count)").foregroundStyle(tint)
+                    Text("\(indices.count)").foregroundStyle(tint)
                 }
             }
         }
@@ -350,6 +387,17 @@ struct ImportFlow: View {
         parsed = nil
         readFailure = nil
         preview = nil
+        previewRules = []
+    }
+
+    private func chooseFile() {
+        #if DEBUG
+        if let url = AppUITestFixture.importStatementURL() {
+            handleFileSelection(.success([url]))
+            return
+        }
+        #endif
+        isPickingFile = true
     }
 
     private func handleFileSelection(_ result: Result<[URL], Error>) {
@@ -417,10 +465,11 @@ struct ImportFlow: View {
         isWorking = true
 
         let pipeline = makePipeline(statementAccountID, categoryAccountID)
+        previewRules = appState.applicableClassificationRules
         preview = pipeline.previewImport(
             lines: lines,
             into: appState.ledger,
-            classifier: appState.transactionClassifier()
+            classifier: ClassificationRuleConfiguration.makeClassifier(from: previewRules)
         )
 
         isWorking = false
@@ -511,8 +560,17 @@ private struct ImportSummary: View {
 // MARK: - Row
 
 private struct ImportOutcomeRow: View {
+    let index: Int
     let outcome: ImportLineOutcome
+    let evaluation: ClassificationRuleEvaluation
     let accounts: [AccountID: Account]
+
+    private var identifier: String { "import.row.\(index)" }
+
+    private var draftDetails: DraftReviewDetails? {
+        guard case let .proposed(_, draft, _) = outcome else { return nil }
+        return DraftReviewDetails(transaction: draft, accounts: accounts)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.Space.xs) {
@@ -520,7 +578,7 @@ private struct ImportOutcomeRow: View {
                 Text(outcome.line.description)
                     .font(.uiRowTitle)
                     .foregroundStyle(Theme.ink)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: Metrics.Space.s)
 
@@ -531,15 +589,36 @@ private struct ImportOutcomeRow: View {
                 )
             }
 
-            HStack(spacing: Metrics.Space.xs) {
-                Text(DateDisplay.transactionDate(outcome.line.date))
+            Text(DateDisplay.transactionDate(outcome.line.date))
+                .font(.uiCaption)
+                .foregroundStyle(Theme.inkMuted)
 
-                if outcome.line.hasFee, let fee = outcome.line.fee {
-                    Text("· fee \(MoneyDisplay.string(Money(fee, currency: outcome.line.currency)))")
+            if let draftDetails {
+                Text("Category: \(draftDetails.categoryName)")
+                    .font(.uiCaption)
+                    .foregroundStyle(Theme.accent)
+                    .accessibilityIdentifier("\(identifier).category")
+
+                Text("Transaction description: \(draftDetails.title)")
+                    .font(.uiCaption)
+                    .foregroundStyle(Theme.ink)
+                    .accessibilityIdentifier("\(identifier).memo")
+
+                Text(ruleExplanation)
+                    .font(.uiCaption)
+                    .foregroundStyle(Theme.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("\(identifier).rule")
+
+                if !draftDetails.feePostings.isEmpty {
+                    Text(draftDetails.feePostings.map { posting in
+                        "Fee: \(MoneyDisplay.string(posting.money)) · \(accounts[posting.accountID]?.name ?? "Unknown category")"
+                    }.joined(separator: "; "))
+                    .font(.uiCaption)
+                    .foregroundStyle(Theme.inkMuted)
+                    .accessibilityIdentifier("\(identifier).fee")
                 }
             }
-            .font(.uiCaption)
-            .foregroundStyle(Theme.inkMuted)
 
             if let detail {
                 Text(detail)
@@ -549,6 +628,26 @@ private struct ImportOutcomeRow: View {
             }
         }
         .padding(.vertical, Metrics.Space.xs)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel([outcome.line.description, detail].compactMap { $0 }.joined(separator: ". "))
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var ruleExplanation: String {
+        guard !evaluation.matches.isEmpty else {
+            return "No active rule matched. Using the starting category and bank description."
+        }
+        let matched = evaluation.matches.map { "“\($0.needle)”" }.joined(separator: ", ")
+        let category = winnerName(evaluation.counterpartyWinnerRuleID)
+            .map { "Category from rule \($0)." } ?? "Starting category kept."
+        let memo = winnerName(evaluation.memoWinnerRuleID)
+            .map { "Description from rule \($0)." } ?? "Bank description kept."
+        return "Matched \(matched). \(category) \(memo)"
+    }
+
+    private func winnerName(_ id: UUID?) -> String? {
+        guard let id, let match = evaluation.matches.first(where: { $0.id == id }) else { return nil }
+        return "“\(match.needle)”"
     }
 
     private var detail: String? {

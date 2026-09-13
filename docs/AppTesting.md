@@ -29,6 +29,27 @@ becomes persisted ledger state, and it can be tested quickly without launching
 the app. UI tests cover the smaller set of contracts that require actual taps,
 presentation, visible amounts, app lifecycle events, and process relaunch.
 
+## Import rules and statement review
+
+Import rules are global case-insensitive substring matches. They run top to
+bottom; a later matching rule wins separately for category and transaction
+description. The rule manager supports creation, editing, pausing, reordering,
+and trying a sample description without changing a transaction. Rule writes wait
+for rule storage, so an unsuccessful create, edit, reorder, pause, or delete
+returns failure while leaving the visible state available for retry.
+
+The import preview shows the original bank description, the proposed category
+and transaction description, and which matching rule supplied each change. Tests also cover the accounting boundaries:
+an imported purchase or income can have a separate fee posting, malformed CSV
+fee values are rejected exactly, and a legacy split with an ambiguous
+counterparty is left unchanged rather than guessed.
+
+The native import journey uses the Debug-only isolated fixture to bypass only the
+OS document picker. It still runs real CSV parsing, import preview, rule review,
+save, and relaunch behavior. Execution on both iOS 18.5 and iOS 26.2 remains
+pending for the candidate revision; the fixture and tests are not evidence of a
+passing native run by themselves.
+
 ## Test repository
 
 App tests use an in-memory `LedgerRepository`.

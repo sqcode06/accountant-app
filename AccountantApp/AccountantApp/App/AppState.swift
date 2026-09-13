@@ -595,32 +595,34 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Moves a draft to a different category — the fix review exists for.
-    ///
-    /// The expense account IDs are read *before* the mutation closure runs.
-    /// Reading `ledger` inside a closure that is mutating it would be an
-    /// exclusivity violation.
+    /// Changes the purchase or income category while preserving separate fees.
     @discardableResult
     func recategorizeDraft(id: TransactionID, to categoryID: AccountID) async -> Bool {
-        let expenseAccountIDs = Set(
-            ledger.accounts.values
-                .filter { $0.kind == .expense }
-                .map(\.id)
-        )
+        guard !refuseWriteWhileLocked() else { return false }
+        guard let category = ledger.accounts[categoryID], category.status == .active,
+              category.kind == .expense || category.kind == .income else {
+            lastError = AppError(message: "Choose an active expense or income category.")
+            return false
+        }
+        guard let transaction = ledger.transactions.first(where: { $0.id == id }) else {
+            lastError = AppError(LedgerError.transactionNotFound(id))
+            return false
+        }
+        let details = DraftReviewDetails(transaction: transaction, accounts: ledger.accounts)
+        guard let index = details.categoryPostingIndex else {
+            lastError = AppError(message: details.cannotRecategorizeReason ?? "This entry has no editable category.")
+            return false
+        }
 
         return await mutateAndSave { ledger in
             try ledger.updateDraftTransaction(id: id) { transaction in
-                transaction.postings = transaction.postings.map { posting in
-                    guard expenseAccountIDs.contains(posting.accountID) else {
-                        return posting
-                    }
-
-                    return Posting(
-                        accountID: categoryID,
-                        money: posting.money,
-                        cleared: posting.cleared
-                    )
-                }
+                let posting = transaction.postings[index]
+                transaction.postings[index] = Posting(
+                    accountID: categoryID,
+                    money: posting.money,
+                    cleared: posting.cleared,
+                    role: posting.role
+                )
             }
         }
     }
@@ -868,38 +870,71 @@ final class AppState: ObservableObject {
     func createDescriptionContainsRule(
         needle: String,
         counterpartyAccountID: AccountID?,
-        cleanedMemo: String?
+        cleanedMemo: String?,
+        id: UUID = UUID(),
+        isEnabled: Bool = true
     ) async -> Bool {
-        let cleanedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedMemo = Self.cleanedOptionalText(cleanedMemo)
-
-        guard !cleanedNeedle.isEmpty else {
-            lastError = AppError(message: "Rule match text cannot be empty.")
-            return false
-        }
-
-        guard counterpartyAccountID != nil || normalizedMemo != nil else {
-            lastError = AppError(message: "Rule must change an account, memo, or both.")
-            return false
-        }
-
         let rule = ClassificationRuleConfiguration(
-            needle: cleanedNeedle,
+            id: id,
+            needle: needle,
             counterpartyAccountID: counterpartyAccountID,
-            cleanedMemo: normalizedMemo
+            cleanedMemo: cleanedMemo,
+            isEnabled: isEnabled
         )
-
+        guard validateClassificationRule(rule) else { return false }
         var updatedRules = classificationRules
-        updatedRules.append(rule)
+        // A failed write leaves the rule visible and dirty. Retrying the same
+        // form must retry that rule, rather than append a duplicate.
+        if let index = updatedRules.firstIndex(where: { $0.id == id }) {
+            updatedRules[index] = rule
+        } else {
+            updatedRules.append(rule)
+        }
         return await saveClassificationRules(updatedRules)
+    }
+
+    @discardableResult
+    func updateClassificationRule(_ rule: ClassificationRuleConfiguration) async -> Bool {
+        guard validateClassificationRule(rule) else { return false }
+        guard let index = classificationRules.firstIndex(where: { $0.id == rule.id }) else {
+            lastError = AppError(message: "This rule no longer exists.")
+            return false
+        }
+        var rules = classificationRules
+        rules[index] = rule
+        return await saveClassificationRules(rules)
+    }
+
+    @discardableResult
+    func setClassificationRuleEnabled(id: UUID, isEnabled: Bool) async -> Bool {
+        guard var rule = classificationRules.first(where: { $0.id == id }) else {
+            lastError = AppError(message: "This rule no longer exists.")
+            return false
+        }
+        rule.isEnabled = isEnabled
+        return await updateClassificationRule(rule)
+    }
+
+    @discardableResult
+    func moveClassificationRules(fromOffsets offsets: IndexSet, toOffset destination: Int) async -> Bool {
+        guard (0...classificationRules.count).contains(destination),
+              offsets.allSatisfy({ classificationRules.indices.contains($0) }) else {
+            lastError = AppError(message: "The rule order changed. Try moving the rule again.")
+            return false
+        }
+        var rules = classificationRules
+        let moved = offsets.sorted().map { rules[$0] }
+        for index in offsets.sorted().reversed() { rules.remove(at: index) }
+        let insertion = destination - offsets.filter { $0 < destination }.count
+        rules.insert(contentsOf: moved, at: insertion)
+        return await saveClassificationRules(rules)
     }
 
     @discardableResult
     func deleteClassificationRule(id: UUID) async -> Bool {
         let updatedRules = classificationRules.filter { $0.id != id }
         guard updatedRules.count != classificationRules.count else {
-            lastError = nil
-            return true
+            return await flushPendingWrites()
         }
         return await saveClassificationRules(updatedRules)
     }
@@ -912,18 +947,43 @@ final class AppState: ObservableObject {
         ClassificationRuleConfiguration.makeClassifier(from: applicableClassificationRules)
     }
 
-    private var applicableClassificationRules: [ClassificationRuleConfiguration] {
-        classificationRules.filter { rule in
-            guard rule.makeRule() != nil else {
-                return false
-            }
+    var applicableClassificationRules: [ClassificationRuleConfiguration] {
+        classificationRules.filter { classificationRuleUnavailableReason($0) == nil }
+    }
 
-            guard let accountID = rule.counterpartyAccountID else {
-                return true
-            }
+    func classificationRuleTest(sampleDescription: String) -> ClassificationRuleEvaluation {
+        applicableClassificationRules.evaluate(description: sampleDescription)
+    }
 
-            return ledger.accounts[accountID]?.status == .active
+    func classificationRuleUnavailableReason(_ rule: ClassificationRuleConfiguration) -> String? {
+        if !rule.isEnabled { return "Paused" }
+        if rule.needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Match text is empty" }
+        if rule.makeRule() == nil { return "This rule makes no changes" }
+        if let id = rule.counterpartyAccountID {
+            guard let account = ledger.accounts[id] else { return "Category no longer exists" }
+            guard account.status == .active else { return "Category is archived" }
+            guard account.kind == .expense || account.kind == .income else {
+                return "Choose an expense or income category"
+            }
         }
+        return nil
+    }
+
+    private func validateClassificationRule(_ rule: ClassificationRuleConfiguration) -> Bool {
+        guard !refuseWriteWhileLocked() else { return false }
+        guard !rule.needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            lastError = AppError(message: "Rule match text cannot be empty.")
+            return false
+        }
+        guard rule.counterpartyAccountID != nil || Self.cleanedOptionalText(rule.cleanedMemo) != nil else {
+            lastError = AppError(message: "Rule must change an account, memo, or both.")
+            return false
+        }
+        if rule.isEnabled, let reason = classificationRuleUnavailableReason(rule) {
+            lastError = AppError(message: reason)
+            return false
+        }
+        return true
     }
 
     @discardableResult
@@ -933,7 +993,7 @@ final class AppState: ObservableObject {
         classificationRules = updatedRules
         lastError = nil
         scheduleFlush { $0.rules = true }
-        return true
+        return await flushPendingWrites()
     }
 
     private func createExpense(

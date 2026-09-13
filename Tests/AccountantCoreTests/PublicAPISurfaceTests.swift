@@ -188,6 +188,20 @@ final class PublicAPISurfaceTests: XCTestCase {
             .makeClassifier(from: [rule])
         _ = classifier
 
+        let taggedPosting = Posting(
+            accountID: bank.id,
+            money: Money(Decimal(-12), currency: eur),
+            role: PostingRole.statement
+        )
+        XCTAssertEqual(taggedPosting.role, .statement)
+
+        let evaluation: ClassificationRuleEvaluation = [rule].evaluate(description: "RIMI EESTI")
+        let matches: [ClassificationRuleMatch] = evaluation.matches
+        XCTAssertEqual(matches.first?.id, rule.id)
+        XCTAssertEqual(evaluation.counterpartyWinnerRuleID, rule.id)
+        XCTAssertEqual(evaluation.memoWinnerRuleID, rule.id)
+        XCTAssertEqual(evaluation.suggestion?.cleanedMemo, "Rimi")
+
         let backup = LedgerBackup(
             ledger: ledger,
             budget: Budget(),

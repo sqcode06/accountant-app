@@ -41,14 +41,13 @@ struct ClassificationRuleStorageTests {
             repository: ledgerRepository,
             classificationRuleRepository: ruleRepository
         )
+        await appState.loadIfNeeded()
 
         let success = await appState.createDescriptionContainsRule(
             needle: "  RIMI  ",
             counterpartyAccountID: fixture.groceries.id,
             cleanedMemo: "  Rimi  "
         )
-        await appState.flushPendingWrites()
-
         #expect(success)
         #expect(appState.classificationRules.count == 1)
         #expect(appState.classificationRules.first?.needle == "RIMI")

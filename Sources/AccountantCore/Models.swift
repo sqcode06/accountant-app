@@ -92,9 +92,21 @@ public struct Account: Hashable, Codable, Sendable {
     }
 }
 
+/// The semantic job a posting performs in a statement import.
+///
+/// Older transactions have no role. Import code tags new postings so later edits
+/// can distinguish the bank movement, the merchant/source, and a separate fee
+/// without guessing from array order or account kind.
+public enum PostingRole: String, Hashable, Codable, Sendable {
+    case statement
+    case counterparty
+    case fee
+}
+
 public struct Posting: Hashable, Codable, Sendable {
     public let accountID: AccountID
     public let money: Money
+    public var role: PostingRole?
 
     /// Whether the account's external source (usually a bank statement) has
     /// confirmed this posting.
@@ -110,14 +122,20 @@ public struct Posting: Hashable, Codable, Sendable {
     /// the statement; you have not reviewed the categorisation).
     public var cleared: Bool
 
-    public init(accountID: AccountID, money: Money, cleared: Bool = false) {
+    public init(
+        accountID: AccountID,
+        money: Money,
+        cleared: Bool = false,
+        role: PostingRole? = nil
+    ) {
         self.accountID = accountID
         self.money = money
         self.cleared = cleared
+        self.role = role
     }
 
     private enum CodingKeys: String, CodingKey {
-        case accountID, money, cleared
+        case accountID, money, cleared, role
     }
 
     public init(from decoder: Decoder) throws {
@@ -126,6 +144,7 @@ public struct Posting: Hashable, Codable, Sendable {
         self.accountID = try c.decode(AccountID.self, forKey: .accountID)
         self.money = try c.decode(Money.self, forKey: .money)
         self.cleared = try c.decodeIfPresent(Bool.self, forKey: .cleared) ?? false
+        self.role = try c.decodeIfPresent(PostingRole.self, forKey: .role)
     }
 }
 

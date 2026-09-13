@@ -185,7 +185,7 @@ public extension StatementFormat {
     static let revolut = StatementFormat(
         id: "revolut",
         name: "Revolut",
-        note: "Revolut exports carry no unique reference, so duplicate detection falls back to comparing date, amount and description.",
+        note: "Revolut exports carry no unique reference, so repeated rows cannot be detected automatically.",
         delimiter: ",",
         columns: Columns(
             date: "Completed Date",

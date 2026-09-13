@@ -84,8 +84,8 @@ final class ImportPipelineTests: XCTestCase {
         let draft = try pipeline.makeDraft(from: line)
 
         XCTAssertEqual(draft.postings.count, 2)
-        XCTAssertEqual(draft.postings[0], Posting(accountID: bank.id, money: Money(Decimal(-25), currency: eur)))
-        XCTAssertEqual(draft.postings[1], Posting(accountID: expense.id, money: Money(Decimal(25), currency: eur)))
+        XCTAssertEqual(draft.postings[0], Posting(accountID: bank.id, money: Money(Decimal(-25), currency: eur), role: .statement))
+        XCTAssertEqual(draft.postings[1], Posting(accountID: expense.id, money: Money(Decimal(25), currency: eur), role: .counterparty))
     }
 
     func testIncomingLineUsesStatementAmountAndOppositeCounterpartyAmount() throws {
@@ -105,8 +105,8 @@ final class ImportPipelineTests: XCTestCase {
         let draft = try pipeline.makeDraft(from: line)
 
         XCTAssertEqual(draft.postings.count, 2)
-        XCTAssertEqual(draft.postings[0], Posting(accountID: bank.id, money: Money(Decimal(1000), currency: eur)))
-        XCTAssertEqual(draft.postings[1], Posting(accountID: income.id, money: Money(Decimal(-1000), currency: eur)))
+        XCTAssertEqual(draft.postings[0], Posting(accountID: bank.id, money: Money(Decimal(1000), currency: eur), role: .statement))
+        XCTAssertEqual(draft.postings[1], Posting(accountID: income.id, money: Money(Decimal(-1000), currency: eur), role: .counterparty))
     }
 
     func testMatchingRulesApplyInInsertionOrder() throws {

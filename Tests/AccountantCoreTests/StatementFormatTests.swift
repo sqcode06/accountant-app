@@ -159,6 +159,21 @@ final class StatementFormatTests: XCTestCase {
         XCTAssertTrue(result.lines[1].hasFee)
     }
 
+    func testRevolutAmountsAndFeesKeepExactDecimalValues() throws {
+        let csv = """
+        Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
+        Card Payment,Current,2026-09-01 10:00:00,2026-09-01 10:00:01,EXACT PAYMENT,-24.60,0.40,EUR,COMPLETED,100.00
+        """
+
+        let line = try XCTUnwrap(
+            StatementFormat.revolut.makeParser(source: "Revolut").parse(csv).first
+        )
+
+        XCTAssertEqual(line.amount, Decimal(string: "-24.60"))
+        XCTAssertEqual(line.fee, Decimal(string: "0.40"))
+        XCTAssertEqual((-line.amount) + (line.fee ?? .zero), Decimal(25))
+    }
+
     func testRevolutHasNoExternalID() throws {
         let result = try StatementFormat.revolut.makeParser(source: "Revolut").parseLines(Self.revolut)
 

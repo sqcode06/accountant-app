@@ -133,6 +133,24 @@ date,amount,currency,description
         }
     }
 
+    func testInvalidFeeReportsOriginalValue() {
+        let parser = CSVBankLineParser(
+            source: "FixtureBank",
+            columns: .init(fee: "fee")
+        )
+        let csv = """
+        date,amount,currency,description,external_id,fee
+        2026-05-01,-12.34,EUR,Coffee,CARD-1,not-money
+        """
+
+        XCTAssertThrowsError(try parser.parse(csv)) { error in
+            XCTAssertEqual(
+                error as? BankLineParseError,
+                .invalidAmount(row: 2, column: "fee", value: "not-money")
+            )
+        }
+    }
+
     func testInvalidCurrencyReportsOriginalValue() {
         let parser = CSVBankLineParser(source: "FixtureBank")
         let csv = """
@@ -146,6 +164,43 @@ date,amount,currency,description
                 .invalidCurrency(row: 2, column: "currency", value: "EURO")
             )
         }
+    }
+
+    func testAmountsAndFeesRetainExactDecimalPrecision() throws {
+        let parser = CSVBankLineParser(
+            source: "FixtureBank",
+            columns: .init(fee: "fee")
+        )
+        let csv = """
+        date,amount,currency,description,external_id,fee
+        2026-05-01,24.60,EUR,Refund,CARD-1,0.40
+        2026-05-02,12345678901234567890.12,EUR,Large transfer,CARD-2,0.00
+        """
+
+        let lines = try parser.parse(csv)
+
+        XCTAssertEqual(lines[0].amount, Decimal(string: "24.60"))
+        XCTAssertEqual(lines[0].fee, Decimal(string: "0.40"))
+        XCTAssertEqual(lines[0].amount + (lines[0].fee ?? .zero), Decimal(25))
+        XCTAssertEqual(lines[1].amount, Decimal(string: "12345678901234567890.12"))
+        XCTAssertNil(lines[1].fee)
+    }
+
+    func testDecimalCommaAndGroupedAmountsRetainExactPrecision() throws {
+        let parser = CSVBankLineParser(
+            source: "FixtureBank",
+            columns: .init(externalID: nil, fee: "fee"),
+            delimiter: ";"
+        )
+        let csv = """
+        date;amount;currency;description;fee
+        2026-05-01;1 234 567,89;EUR;Grouped amount;0,40
+        """
+
+        let line = try XCTUnwrap(parser.parse(csv).first)
+
+        XCTAssertEqual(line.amount, Decimal(string: "1234567.89"))
+        XCTAssertEqual(line.fee, Decimal(string: "0.40"))
     }
 
     func testMalformedQuotedFieldReportsCSVError() {
