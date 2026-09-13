@@ -25,8 +25,6 @@ jobs:
       SCHEME: AccountantApp
       TEST_PLAN: AccountantApp
       DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=18.5
-      DERIVED_DATA: ${{ runner.temp }}/AccountantDerivedData
-      RESULT_BUNDLE: ${{ runner.temp }}/AccountantAppTests.xcresult
 
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +41,8 @@ jobs:
 
       - name: Build the Release iOS app
         shell: bash
+        env:
+          DERIVED_DATA: ${{ runner.temp }}/AccountantDerivedData
         run: |
           set -o pipefail
           xcodebuild \
@@ -55,6 +55,9 @@ jobs:
 
       - name: Run native unit and UI tests
         shell: bash
+        env:
+          DERIVED_DATA: ${{ runner.temp }}/AccountantDerivedData
+          RESULT_BUNDLE: ${{ runner.temp }}/AccountantAppTests.xcresult
         run: |
           set -o pipefail
           xcodebuild \
@@ -70,6 +73,8 @@ jobs:
       - name: Collect UI-test screenshots
         if: always()
         shell: bash
+        env:
+          RESULT_BUNDLE: ${{ runner.temp }}/AccountantAppTests.xcresult
         run: |
           if [[ -d "$RESULT_BUNDLE" ]]; then
             xcrun xcresulttool export attachments \
@@ -80,6 +85,8 @@ jobs:
       - name: Stage result bundle
         if: always()
         shell: bash
+        env:
+          RESULT_BUNDLE: ${{ runner.temp }}/AccountantAppTests.xcresult
         run: |
           if [[ -d "$RESULT_BUNDLE" ]]; then
             ditto "$RESULT_BUNDLE" artifacts/AccountantAppTests.xcresult
