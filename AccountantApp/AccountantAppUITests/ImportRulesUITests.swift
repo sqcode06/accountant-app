@@ -33,11 +33,11 @@ final class ImportRulesUITests: XCTestCase {
         let citybeeID = try ruleID(containing: "CITYBEE")
         assertRuleOrder(firstID: rimiID, secondID: citybeeID)
 
-        let citybeeEdit = element(identifier: "rules.edit.\(citybeeID)")
+        let citybeeEdit = button(identifier: "rules.edit.\(citybeeID)")
         waitAndTap(citybeeEdit, description: "CITYBEE edit button")
-        replaceText(in: element(identifier: "rules.matchText"), with: "CITYBEE RIDE")
-        replaceText(in: element(identifier: "rules.memo"), with: "Booked ride")
-        waitAndTap(element(identifier: "rules.save"), description: "Save edited rule")
+        replaceText(in: textField(identifier: "rules.matchText"), with: "CITYBEE RIDE")
+        replaceText(in: textField(identifier: "rules.memo"), with: "Booked ride")
+        waitAndTap(button(identifier: "rules.save"), description: "Save edited rule")
         XCTAssertTrue(app.navigationBars["Import rules"].waitForExistence(timeout: 5))
 
         let rimiToggle = app.switches["rules.enabled.\(rimiID)"]
@@ -55,15 +55,15 @@ final class ImportRulesUITests: XCTestCase {
         persistAndRelaunch()
 
         openImportRules()
-        XCTAssertTrue(element(identifier: "rules.row.\(rimiID)").waitForExistence(timeout: 5))
-        XCTAssertTrue(element(identifier: "rules.row.\(citybeeID)").waitForExistence(timeout: 5))
+        XCTAssertTrue(otherElement(identifier: "rules.row.\(rimiID)").waitForExistence(timeout: 5))
+        XCTAssertTrue(otherElement(identifier: "rules.row.\(citybeeID)").waitForExistence(timeout: 5))
         assertRuleOrder(firstID: citybeeID, secondID: rimiID)
 
         let savedRimiToggle = app.switches["rules.enabled.\(rimiID)"]
         XCTAssertTrue(savedRimiToggle.waitForExistence(timeout: 5))
         XCTAssertTrue(waitForSwitch(savedRimiToggle, isOn: false), "Paused state was not saved")
 
-        let savedCitybeeEdit = element(identifier: "rules.edit.\(citybeeID)")
+        let savedCitybeeEdit = button(identifier: "rules.edit.\(citybeeID)")
         XCTAssertTrue(savedCitybeeEdit.label.contains("CITYBEE RIDE"))
         XCTAssertTrue(savedCitybeeEdit.label.contains("Booked ride"))
         assertTryMatch("RIMI SUPERMARKET", contains: ["No active rules match"])
@@ -76,15 +76,15 @@ final class ImportRulesUITests: XCTestCase {
         addRule(matchText: "ACME PAYROLL", category: "Salary", memo: "September salary")
         waitAndTap(app.navigationBars["Import rules"].buttons["Settings"], description: "Back to Settings")
 
-        waitAndTap(element(identifier: "settings.import"), description: "Import statement")
-        waitAndTap(element(identifier: "import.format.revolut"), description: "Revolut format")
-        waitAndTap(element(identifier: "import.file"), description: "Fixture statement file")
-        waitAndTap(element(identifier: "import.continue"), description: "Continue after parsing")
+        waitAndTap(button(identifier: "settings.import"), description: "Import statement")
+        waitAndTap(button(identifier: "import.format.revolut"), description: "Revolut format")
+        waitAndTap(button(identifier: "import.file"), description: "Fixture statement file")
+        waitAndTap(button(identifier: "import.continue"), description: "Continue after parsing")
 
         selectPicker(identifier: "import.statementAccount", option: "Revolut")
         selectPicker(identifier: "import.defaultCategory", option: "Uncategorised")
         selectPicker(identifier: "import.feeCategory", option: "Bank fees")
-        waitAndTap(element(identifier: "import.preview"), description: "Build import preview")
+        waitAndTap(button(identifier: "import.preview"), description: "Build import preview")
 
         assertImportRow(
             0,
@@ -93,7 +93,7 @@ final class ImportRulesUITests: XCTestCase {
             ruleText: "RIMI",
             feeText: "0.40"
         )
-        let firstPreviewRow = element(identifier: "import.row.0")
+        let firstPreviewRow = otherElement(identifier: "import.row.0")
         let warning = firstPreviewRow.label.lowercased()
         XCTAssertTrue(
             warning.contains("duplicate") || warning.contains("reference"),
@@ -109,8 +109,8 @@ final class ImportRulesUITests: XCTestCase {
         )
         assertImportRow(4, category: "Uncategorised", memo: "CORNER CAFE")
 
-        waitAndTap(element(identifier: "import.apply"), description: "Import preview")
-        let result = element(identifier: "import.result")
+        waitAndTap(button(identifier: "import.apply"), description: "Import preview")
+        let result = combinedText(identifier: "import.result")
         XCTAssertTrue(result.waitForExistence(timeout: 10))
         XCTAssertTrue(result.label.contains("5"), "Unexpected import result: \(result.label)")
         waitAndTap(app.buttons["Done"], description: "Close import result")
@@ -119,22 +119,24 @@ final class ImportRulesUITests: XCTestCase {
         waitAndTap(app.buttons["review.open"], description: "Open review")
 
         let purchaseID = try reviewTransactionID(memo: "Grocery run", amount: "24.60")
-        let purchaseCategory = element(identifier: "review.row.\(purchaseID).category")
+        let purchaseCategory = button(identifier: "review.row.\(purchaseID).category")
         XCTAssertTrue(purchaseCategory.waitForExistence(timeout: 5))
         XCTAssertTrue(purchaseCategory.label.contains("Groceries"))
 
-        let fee = element(identifier: "review.row.\(purchaseID).fee")
+        let fee = staticText(identifier: "review.row.\(purchaseID).fee")
         XCTAssertTrue(fee.waitForExistence(timeout: 5))
         XCTAssertTrue(fee.label.contains("0.40"), "Fee was not preserved in review: \(fee.label)")
+        XCTAssertTrue(fee.label.contains("Bank fees"))
 
         waitAndTap(purchaseCategory, description: "Purchase category")
         waitAndTap(app.buttons["Transport"], description: "Transport category option")
         XCTAssertTrue(waitForLabel(purchaseCategory, containing: "Transport"))
         XCTAssertTrue(fee.label.contains("0.40"), "Recategorising changed the separate fee")
+        XCTAssertTrue(fee.label.contains("Bank fees"), "Recategorising moved the fee to another category")
 
         let incomeID = try reviewTransactionID(memo: "September salary", amount: "2,450")
-        let incomeCategory = element(identifier: "review.row.\(incomeID).category")
-        let incomeAmount = element(identifier: "review.row.\(incomeID).amount")
+        let incomeCategory = button(identifier: "review.row.\(incomeID).category")
+        let incomeAmount = staticText(identifier: "review.row.\(incomeID).amount")
         XCTAssertTrue(incomeCategory.waitForExistence(timeout: 5))
         XCTAssertTrue(incomeCategory.label.contains("Salary"))
         XCTAssertTrue(incomeAmount.waitForExistence(timeout: 5))
@@ -200,16 +202,16 @@ final class ImportRulesUITests: XCTestCase {
 
     private func openImportRules() {
         waitAndTap(app.tabBars.buttons["Settings"], description: "Settings tab")
-        waitAndTap(element(identifier: "settings.importRules"), description: "Import rules")
+        waitAndTap(button(identifier: "settings.importRules"), description: "Import rules")
         XCTAssertTrue(app.navigationBars["Import rules"].waitForExistence(timeout: 5))
     }
 
     // MARK: - Rules
 
     private func addRule(matchText: String, category: String, memo: String) {
-        waitAndTap(element(identifier: "rules.add"), description: "Add rule")
+        waitAndTap(button(identifier: "rules.add"), description: "Add rule")
 
-        let matchField = element(identifier: "rules.matchText")
+        let matchField = textField(identifier: "rules.matchText")
         XCTAssertTrue(matchField.waitForExistence(timeout: 5))
         XCTAssertTrue(matchField.isHittable)
         matchField.tap()
@@ -217,13 +219,13 @@ final class ImportRulesUITests: XCTestCase {
 
         selectPicker(identifier: "rules.category", option: category)
 
-        let memoField = element(identifier: "rules.memo")
+        let memoField = textField(identifier: "rules.memo")
         XCTAssertTrue(memoField.waitForExistence(timeout: 5))
         XCTAssertTrue(memoField.isHittable)
         memoField.tap()
         memoField.typeText(memo)
 
-        let save = element(identifier: "rules.save")
+        let save = button(identifier: "rules.save")
         XCTAssertTrue(save.waitForExistence(timeout: 5))
         XCTAssertTrue(save.isEnabled)
         waitAndTap(save, description: "Save rule")
@@ -231,13 +233,13 @@ final class ImportRulesUITests: XCTestCase {
     }
 
     private func assertTryMatch(_ text: String, contains expected: [String]) {
-        let field = element(identifier: "rules.tryText")
+        let field = textField(identifier: "rules.tryText")
         makeHittable(field)
         XCTAssertTrue(field.isHittable)
         replaceText(in: field, with: text, clearingExisting: false)
         dismissKeyboard()
 
-        let result = element(identifier: "rules.tryResult")
+        let result = ruleTryResult()
         makeHittable(result)
         XCTAssertTrue(result.exists)
         for value in expected {
@@ -254,15 +256,15 @@ final class ImportRulesUITests: XCTestCase {
             "rules.edit.",
             needle
         )
-        let editButton = app.descendants(matching: .any).matching(predicate).firstMatch
+        let editButton = app.buttons.matching(predicate).firstMatch
         XCTAssertTrue(editButton.waitForExistence(timeout: 5), "Missing rule containing \(needle)")
         guard editButton.exists else { throw UITestFailure.missingElement("rule \(needle)") }
         return String(editButton.identifier.dropFirst("rules.edit.".count))
     }
 
     private func assertRuleOrder(firstID: String, secondID: String) {
-        let first = element(identifier: "rules.row.\(firstID)")
-        let second = element(identifier: "rules.row.\(secondID)")
+        let first = otherElement(identifier: "rules.row.\(firstID)")
+        let second = otherElement(identifier: "rules.row.\(secondID)")
         makeHittable(first)
         makeHittable(second)
 
@@ -280,11 +282,11 @@ final class ImportRulesUITests: XCTestCase {
     }
 
     private func reorderRule(movingID: String, beforeID: String) {
-        let reorderMode = element(identifier: "rules.reorder")
+        let reorderMode = button(identifier: "rules.reorder")
         waitAndTap(reorderMode, description: "Edit rule order")
 
-        let movingRow = element(identifier: "rules.row.\(movingID)")
-        let destinationRow = element(identifier: "rules.row.\(beforeID)")
+        let movingRow = otherElement(identifier: "rules.row.\(movingID)")
+        let destinationRow = otherElement(identifier: "rules.row.\(beforeID)")
         makeHittable(destinationRow)
         makeHittable(movingRow)
         XCTAssertTrue(movingRow.isHittable)
@@ -322,7 +324,7 @@ final class ImportRulesUITests: XCTestCase {
         feeText: String? = nil
     ) {
         let rowID = "import.row.\(index)"
-        let row = element(identifier: rowID)
+        let row = otherElement(identifier: rowID)
         makeHittable(row)
         XCTAssertTrue(row.waitForExistence(timeout: 5))
 
@@ -343,7 +345,7 @@ final class ImportRulesUITests: XCTestCase {
             ".memo",
             memo
         )
-        let memoElements = app.descendants(matching: .any).matching(predicate)
+        let memoElements = app.staticTexts.matching(predicate)
 
         for _ in 0..<8 {
             for memoElement in memoElements.allElementsBoundByIndex {
@@ -361,7 +363,7 @@ final class ImportRulesUITests: XCTestCase {
                 )
                 let id = String(identifier[start..<end])
                 guard UUID(uuidString: id) != nil else { continue }
-                let amountElement = element(identifier: "review.row.\(id).amount")
+                let amountElement = staticText(identifier: "review.row.\(id).amount")
                 if amountElement.exists && amountElement.label.contains(amount) {
                     return id
                 }
@@ -375,12 +377,34 @@ final class ImportRulesUITests: XCTestCase {
 
     // MARK: - XCUI helpers
 
-    private func element(identifier: String) -> XCUIElement {
-        app.descendants(matching: .any)[identifier]
+    private func button(identifier: String) -> XCUIElement {
+        app.buttons[identifier]
+    }
+
+    private func textField(identifier: String) -> XCUIElement {
+        app.textFields[identifier]
+    }
+
+    private func staticText(identifier: String) -> XCUIElement {
+        app.staticTexts[identifier]
+    }
+
+    private func otherElement(identifier: String) -> XCUIElement {
+        app.otherElements[identifier]
+    }
+
+    private func ruleTryResult() -> XCUIElement {
+        combinedText(identifier: "rules.tryResult")
+    }
+
+    private func combinedText(identifier: String) -> XCUIElement {
+        let combinedResult = otherElement(identifier: identifier)
+        if combinedResult.waitForExistence(timeout: 2) { return combinedResult }
+        return staticText(identifier: identifier)
     }
 
     private func selectPicker(identifier: String, option: String) {
-        let picker = element(identifier: identifier)
+        let picker = button(identifier: identifier)
         waitAndTap(picker, description: "\(identifier) picker")
 
         let choice = app.buttons.matching(
@@ -451,7 +475,7 @@ final class ImportRulesUITests: XCTestCase {
     }
 
     private func assertLabel(identifier: String, contains text: String) {
-        let target = element(identifier: identifier)
+        let target = staticText(identifier: identifier)
         XCTAssertTrue(target.waitForExistence(timeout: 5), "Missing \(identifier)")
         XCTAssertTrue(
             waitForLabel(target, containing: text),
