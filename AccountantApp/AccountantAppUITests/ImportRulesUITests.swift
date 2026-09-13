@@ -153,7 +153,7 @@ final class ImportRulesUITests: XCTestCase {
         assertVisibleText("CORNER CAFE")
 
         let search = app.searchFields["Search memos"]
-        waitAndTap(search, description: "Activity search")
+        waitAndTap(search, description: "Activity search", scrollDirection: .either)
         search.typeText("Grocery run")
         let groceryRows = app.staticTexts.matching(
             NSPredicate(format: "label == %@", "Grocery run")
@@ -265,8 +265,8 @@ final class ImportRulesUITests: XCTestCase {
     private func assertRuleOrder(firstID: String, secondID: String) {
         let first = otherElement(identifier: "rules.row.\(firstID)")
         let second = otherElement(identifier: "rules.row.\(secondID)")
-        makeHittable(first)
-        makeHittable(second)
+        makeHittable(first, direction: .either)
+        makeHittable(second, direction: .either)
 
         let ordered = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
@@ -287,8 +287,8 @@ final class ImportRulesUITests: XCTestCase {
 
         let movingRow = otherElement(identifier: "rules.row.\(movingID)")
         let destinationRow = otherElement(identifier: "rules.row.\(beforeID)")
-        makeHittable(destinationRow)
-        makeHittable(movingRow)
+        makeHittable(destinationRow, direction: .backward)
+        makeHittable(movingRow, direction: .either)
         XCTAssertTrue(movingRow.isHittable)
         XCTAssertTrue(destinationRow.isHittable)
         guard movingRow.isHittable, destinationRow.isHittable else { return }
@@ -347,6 +347,9 @@ final class ImportRulesUITests: XCTestCase {
         )
         let memoElements = app.staticTexts.matching(predicate)
 
+        let scrollSurface = activeScrollSurface()
+        var forwardSwipes = 0
+
         for _ in 0..<8 {
             for memoElement in memoElements.allElementsBoundByIndex {
                 let prefix = "review.row."
@@ -368,7 +371,32 @@ final class ImportRulesUITests: XCTestCase {
                     return id
                 }
             }
-            app.swipeUp()
+            scrollSurface.swipeUp()
+            forwardSwipes += 1
+        }
+
+        // A category menu can leave the corrected purchase lower in the list
+        // than the income row on some OS versions. Reverse only after the forward
+        // scan has moved away from the top, so this cannot become a modal-dismiss
+        // gesture.
+        for _ in 0..<(forwardSwipes + 2) {
+            for memoElement in memoElements.allElementsBoundByIndex {
+                let prefix = "review.row."
+                let suffix = ".memo"
+                let identifier = memoElement.identifier
+                guard identifier.hasPrefix(prefix), identifier.hasSuffix(suffix) else { continue }
+
+                let start = identifier.index(identifier.startIndex, offsetBy: prefix.count)
+                let end = identifier.index(identifier.endIndex, offsetBy: -suffix.count)
+                let id = String(identifier[start..<end])
+                guard UUID(uuidString: id) != nil else { continue }
+
+                let amountElement = staticText(identifier: "review.row.\(id).amount")
+                if amountElement.exists && amountElement.label.contains(amount) {
+                    return id
+                }
+            }
+            scrollSurface.swipeDown()
         }
 
         XCTFail("Missing review row for \(memo), amount \(amount)")
@@ -413,8 +441,12 @@ final class ImportRulesUITests: XCTestCase {
         waitAndTap(choice, description: "\(option) option")
     }
 
-    private func waitAndTap(_ element: XCUIElement, description: String) {
-        makeHittable(element)
+    private func waitAndTap(
+        _ element: XCUIElement,
+        description: String,
+        scrollDirection: ScrollDirection = .forward
+    ) {
+        makeHittable(element, direction: scrollDirection)
         XCTAssertTrue(element.exists, "Missing \(description)")
         XCTAssertTrue(element.isEnabled, "Disabled \(description)")
         XCTAssertTrue(element.isHittable, "Unhittable \(description)")
@@ -422,23 +454,50 @@ final class ImportRulesUITests: XCTestCase {
         element.tap()
     }
 
-    private func makeHittable(_ element: XCUIElement) {
+    private func makeHittable(
+        _ element: XCUIElement,
+        direction: ScrollDirection = .forward
+    ) {
         dismissKeyboard()
         if element.exists && element.isHittable { return }
 
-        // First establish a known top position, which also handles returning to a
-        // toolbar or early row after a prior assertion scrolled to the bottom.
-        for _ in 0..<8 {
-            if element.exists && element.isHittable { return }
-            app.swipeDown()
+        let surface = activeScrollSurface()
+        switch direction {
+        case .forward:
+            scanForHittable(element, on: surface, swipingUp: true, attempts: 12)
+        case .backward:
+            scanForHittable(element, on: surface, swipingUp: false, attempts: 12)
+        case .either:
+            // Search forward first. If the target was earlier, the forward pass
+            // puts the list at its bottom before any downward gesture begins.
+            scanForHittable(element, on: surface, swipingUp: true, attempts: 12)
+            if !element.isHittable {
+                scanForHittable(element, on: surface, swipingUp: false, attempts: 16)
+            }
         }
+    }
 
-        // Then scan down through lazily-created List rows until the target can
-        // actually receive the tap.
-        for _ in 0..<12 {
+    private func scanForHittable(
+        _ element: XCUIElement,
+        on surface: XCUIElement,
+        swipingUp: Bool,
+        attempts: Int
+    ) {
+        for _ in 0..<attempts {
             if element.exists && element.isHittable { return }
-            app.swipeUp()
+            if swipingUp {
+                surface.swipeUp()
+            } else {
+                surface.swipeDown()
+            }
         }
+    }
+
+    private func activeScrollSurface() -> XCUIElement {
+        if let collection = app.collectionViews.allElementsBoundByIndex.last(where: { $0.isHittable }) {
+            return collection
+        }
+        return app.tables.allElementsBoundByIndex.last(where: { $0.isHittable }) ?? app
     }
 
     private func dismissKeyboard() {
@@ -485,7 +544,7 @@ final class ImportRulesUITests: XCTestCase {
 
     private func assertVisibleText(_ text: String) {
         let target = app.staticTexts[text]
-        makeHittable(target)
+        makeHittable(target, direction: .either)
         XCTAssertTrue(target.exists, "Missing text: \(text)")
         XCTAssertTrue(target.isHittable, "Text was not visible: \(text)")
     }
@@ -515,5 +574,11 @@ final class ImportRulesUITests: XCTestCase {
 
     private enum UITestFailure: Error {
         case missingElement(String)
+    }
+
+    private enum ScrollDirection {
+        case forward
+        case backward
+        case either
     }
 }

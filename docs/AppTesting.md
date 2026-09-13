@@ -38,6 +38,11 @@ and trying a sample description without changing a transaction. Rule writes wait
 for rule storage, so an unsuccessful create, edit, reorder, pause, or delete
 returns failure while leaving the visible state available for retry.
 
+Rule numbers follow the saved order and identify the winner even when several
+rules match the same text. The preview keeps that order with its rule snapshot.
+An unavailable category stops the whole rule, including description changes;
+the manager labels this state as not running even if the enable toggle is on.
+
 The import preview shows the original bank description, the proposed category
 and transaction description, and which matching rule supplied each change. Tests also cover the accounting boundaries:
 an imported purchase or income can have a separate fee posting, malformed CSV

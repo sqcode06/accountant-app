@@ -31,6 +31,7 @@ struct ImportFlow: View {
     @State private var preview: ImportPreview?
     // Keep explanations tied to the rules that produced this preview.
     @State private var previewRules: [ClassificationRuleConfiguration] = []
+    @State private var previewRuleOrder: [UUID] = []
     @State private var applyReport: ImportApplyReport?
 
     @State private var isPickingFile = false
@@ -367,6 +368,7 @@ struct ImportFlow: View {
                         index: index,
                         outcome: preview.outcomes[index],
                         evaluation: previewRules.evaluate(description: preview.outcomes[index].line.description),
+                        ruleOrder: previewRuleOrder,
                         accounts: appState.ledger.accounts
                     )
                 }
@@ -388,6 +390,7 @@ struct ImportFlow: View {
         readFailure = nil
         preview = nil
         previewRules = []
+        previewRuleOrder = []
     }
 
     private func chooseFile() {
@@ -466,6 +469,7 @@ struct ImportFlow: View {
 
         let pipeline = makePipeline(statementAccountID, categoryAccountID)
         previewRules = appState.applicableClassificationRules
+        previewRuleOrder = appState.classificationRules.map(\.id)
         preview = pipeline.previewImport(
             lines: lines,
             into: appState.ledger,
@@ -563,6 +567,7 @@ private struct ImportOutcomeRow: View {
     let index: Int
     let outcome: ImportLineOutcome
     let evaluation: ClassificationRuleEvaluation
+    let ruleOrder: [UUID]
     let accounts: [AccountID: Account]
 
     private var identifier: String { "import.row.\(index)" }
@@ -637,17 +642,24 @@ private struct ImportOutcomeRow: View {
         guard !evaluation.matches.isEmpty else {
             return "No active rule matched. Using the starting category and bank description."
         }
-        let matched = evaluation.matches.map { "“\($0.needle)”" }.joined(separator: ", ")
+        let matched = evaluation.matches.map(ruleReference).joined(separator: ", ")
         let category = winnerName(evaluation.counterpartyWinnerRuleID)
-            .map { "Category from rule \($0)." } ?? "Starting category kept."
+            .map { "Category from \($0)." } ?? "Starting category kept."
         let memo = winnerName(evaluation.memoWinnerRuleID)
-            .map { "Description from rule \($0)." } ?? "Bank description kept."
+            .map { "Description from \($0)." } ?? "Bank description kept."
         return "Matched \(matched). \(category) \(memo)"
     }
 
     private func winnerName(_ id: UUID?) -> String? {
         guard let id, let match = evaluation.matches.first(where: { $0.id == id }) else { return nil }
-        return "“\(match.needle)”"
+        return ruleReference(match)
+    }
+
+    private func ruleReference(_ match: ClassificationRuleMatch) -> String {
+        guard let index = ruleOrder.firstIndex(of: match.id) else {
+            return "rule containing “\(match.needle)”"
+        }
+        return "rule \(index + 1) (“\(match.needle)”)"
     }
 
     private var detail: String? {

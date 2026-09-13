@@ -30,8 +30,8 @@ struct ClassificationRulesView: View {
                 }
             } else {
                 Section {
-                    ForEach(appState.classificationRules) { rule in
-                        RuleRow(rule: rule, onEdit: { editingRule = rule })
+                    ForEach(Array(appState.classificationRules.enumerated()), id: \.element.id) { index, rule in
+                        RuleRow(rule: rule, position: index + 1, onEdit: { editingRule = rule })
                             .environmentObject(appState)
                             .accessibilityIdentifier("rules.row.\(rule.id.uuidString)")
                             .swipeActions(edge: .trailing) {
@@ -53,7 +53,7 @@ struct ClassificationRulesView: View {
                 } header: {
                     Text("Rules")
                 } footer: {
-                    Text("Tap Edit, then drag to change the order. Paused rules stay here but do not run.")
+                    Text("Tap Edit, then drag to change the numbered order. Paused rules and rules with unavailable categories do not run, including their description changes.")
                 }
             }
 
@@ -136,7 +136,7 @@ private struct RuleTester: View {
                         .fieldLabel()
 
                     ForEach(evaluation.matches, id: \.id) { match in
-                        Text("Contains “\(match.needle)”")
+                        Text(ruleReference(match))
                             .font(.uiCaption)
                             .foregroundStyle(Theme.ink)
                     }
@@ -179,7 +179,7 @@ private struct RuleTester: View {
         matches: [ClassificationRuleMatch]
     ) -> some View {
         let winnerName = winnerID.flatMap { id in
-            matches.first(where: { $0.id == id }).map { "“\($0.needle)”" }
+            matches.first(where: { $0.id == id }).map(ruleReference)
         }
 
         return VStack(alignment: .leading, spacing: 2) {
@@ -192,22 +192,30 @@ private struct RuleTester: View {
                 .foregroundStyle(Theme.ink)
         }
     }
+
+    private func ruleReference(_ match: ClassificationRuleMatch) -> String {
+        guard let index = appState.classificationRules.firstIndex(where: { $0.id == match.id }) else {
+            return "rule containing “\(match.needle)”"
+        }
+        return "rule \(index + 1) (“\(match.needle)”)"
+    }
 }
 
 private struct RuleRow: View {
     @EnvironmentObject private var appState: AppState
 
     let rule: ClassificationRuleConfiguration
+    let position: Int
     let onEdit: () -> Void
 
     var body: some View {
         HStack(spacing: Metrics.Space.m) {
             Button(action: onEdit) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Contains \u{201c}\(rule.needle)\u{201d}")
+                    Text("\(position). Contains \u{201c}\(rule.needle)\u{201d}")
                         .font(.uiRowTitle)
                         .foregroundStyle(Theme.ink)
-                        .lineLimit(1)
+                        .lineLimit(2)
 
                     Text(summary)
                         .font(.uiCaption)
@@ -215,7 +223,8 @@ private struct RuleRow: View {
                         .lineLimit(2)
 
                     if let unavailableReason {
-                        Label(unavailableReason, systemImage: "exclamationmark.triangle.fill")
+                        Label(rule.isEnabled ? "Not running: \(unavailableReason)" : unavailableReason,
+                              systemImage: "exclamationmark.triangle.fill")
                             .font(.uiCaption)
                             .foregroundStyle(Theme.pending)
                             .fixedSize(horizontal: false, vertical: true)
@@ -235,7 +244,7 @@ private struct RuleRow: View {
                 .accessibilityIdentifier("rules.enabled.\(rule.id.uuidString)")
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Contains \(rule.needle). \(summary)")
+        .accessibilityLabel("Rule \(position). Contains \(rule.needle). \(summary)")
     }
 
     private var enabledBinding: Binding<Bool> {
