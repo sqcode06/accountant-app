@@ -12,8 +12,13 @@ This document describes the app-level testing layer. The
 [reliability review and testing plan](AppReliabilityPlan.md) records the gaps
 found on 2026-09-13, the repair priorities, native CI prerequisites, and the
 expected-behavior matrix. A native CI gate and the first behavioral UI workflow
-are checked in. They still need their first macOS run; Linux cannot validate an
-iOS build or simulator interaction.
+are checked in. Revision `f9c2af3` passed its first
+[native run](https://github.com/sqcode06/accountant-app/actions/runs/34783889829):
+a Release build, 46 app tests, and two UI tests on iOS 18.5. A subsequent device
+report on iOS 26.2 exposed an untested empty-category state and button layout.
+The gate now includes both runtimes and a regression for that state. Check the
+results for the revision being built; the earlier pass covers only its own code
+and scenarios. Linux cannot validate an iOS build or simulator interaction.
 
 ## Current strategy
 
@@ -83,9 +88,8 @@ data.
 `AccountantAppUITests`, with English/US formatting for stable visible assertions.
 The local `AccountantCore` package reference is `..` from the project directory,
 so a checkout keeps building when its outer folder is renamed. All three native
-targets declare the app's iOS 18.0 minimum; CI currently exercises them on the
-hosted iOS 18.5 runtime because that is the compatible runtime pinned with Xcode
-16.4.
+targets declare the app's iOS 18.0 minimum. CI exercises iPhone 16 with Xcode
+16.4 / iOS 18.5 and Xcode 26.2 / iOS 26.2.
 
 The UI launch fixture is available only in Debug builds. It requires
 `--accountant-ui-testing`, a per-run `ACCOUNTANT_UI_TEST_RUN_ID`, and optionally
@@ -95,6 +99,13 @@ reuses those files. The fixture supplies stable EUR `Fixture Bank` and
 `Eating out` accounts, fixes the app clock at 2026-09-13, skips onboarding, and
 prevents the notification permission prompt. Release builds compile out all
 argument parsing, seeding, and reset behavior.
+
+`ACCOUNTANT_UI_TEST_LEDGER_SEED=no-active-expense` selects a second fixture with
+bank/savings assets, income, and an archived expense, but no active expense
+category. It checks that both Budget add controls offer category creation,
+canceling is harmless, and creating Groceries allows a EUR 20 limit. Both Budget
+fixtures assert a labelled, enabled, tappable horizontal action and retain an
+initial screenshot so an empty-state layout regression is visible in diagnostics.
 
 The first UI workflow creates a EUR 20 September limit through the interface,
 captures EUR 0.10, checks EUR 19.90 remaining while the entry is a draft, confirms
@@ -168,10 +179,10 @@ xcodebuild \
 ```
 
 `.github/workflows/ios.yml` runs a Release app build before the Debug test plan on the pinned
-`macos-15` runner, Xcode 16.4, iOS 18.5, and iPhone 16 combination. The runner
+`macos-15` runner for both pinned Xcode/runtime pairs above. The runner
 checks the repository out under `renamed-ios-checkout`, so the build also guards
 the package reference against assumptions about the checkout folder's name. The
-image currently publishes that exact toolchain and simulator combination in its
+image currently publishes those toolchains and simulators in its
 [installed-software manifest](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md).
 The job has read-only repository permissions and always uploads the revision,
 toolchain inventory, build/test console logs, `.xcresult`, and exported screenshot

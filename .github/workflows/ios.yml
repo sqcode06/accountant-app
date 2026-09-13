@@ -13,18 +13,32 @@ concurrency:
 
 jobs:
   native-tests:
-    name: Xcode 16.4 / iOS 18.5
+    name: Xcode ${{ matrix.xcode }} / iOS ${{ matrix.ios }}
     runs-on: macos-15
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - xcode: "16.4"
+            ios: "18.5"
+            developer_dir: /Applications/Xcode_16.4.app/Contents/Developer
+            destination: platform=iOS Simulator,name=iPhone 16,OS=18.5
+            artifact_suffix: xcode16.4-ios18.5
+          - xcode: "26.2"
+            ios: "26.2"
+            developer_dir: /Applications/Xcode_26.2.app/Contents/Developer
+            destination: platform=iOS Simulator,name=iPhone 16,OS=26.2
+            artifact_suffix: xcode26.2-ios26.2
     defaults:
       run:
         working-directory: renamed-ios-checkout
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: ${{ matrix.developer_dir }}
       PROJECT: AccountantApp/AccountantApp.xcodeproj
       SCHEME: AccountantApp
       TEST_PLAN: AccountantApp
-      DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=18.5
+      DESTINATION: ${{ matrix.destination }}
 
     steps:
       - uses: actions/checkout@v4
@@ -96,7 +110,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-native-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ios-native-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_suffix }}
           path: renamed-ios-checkout/artifacts
           if-no-files-found: error
           retention-days: 14

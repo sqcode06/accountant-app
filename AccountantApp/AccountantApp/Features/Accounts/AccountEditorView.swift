@@ -4,6 +4,7 @@ import AccountantCore
 struct AccountEditorView: View {
     enum Mode {
         case create
+        case createExpenseCategory
         case edit(Account)
     }
 
@@ -24,6 +25,10 @@ struct AccountEditorView: View {
         case .create:
             _name = State(initialValue: "")
             _kind = State(initialValue: .asset)
+            _currency = State(initialValue: Currency("EUR"))
+        case .createExpenseCategory:
+            _name = State(initialValue: "")
+            _kind = State(initialValue: .expense)
             _currency = State(initialValue: Currency("EUR"))
         case let .edit(account):
             _name = State(initialValue: account.name)
@@ -50,24 +55,27 @@ struct AccountEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Account") {
-                    TextField("Name", text: $name)
+                Section(isCreatingExpenseCategory ? "Category" : "Account") {
+                    TextField(isCreatingExpenseCategory ? "Category name" : "Name", text: $name)
                         .textInputAutocapitalization(.words)
                         .submitLabel(.done)
+                        .accessibilityIdentifier("account.name")
 
-                    Picker("Kind", selection: $kind) {
-                        ForEach(offeredKinds, id: \.self) { kind in
-                            Label(kind.displayName, systemImage: kind.systemImageName)
-                                .tag(kind)
+                    if !isCreatingExpenseCategory {
+                        Picker("Kind", selection: $kind) {
+                            ForEach(offeredKinds, id: \.self) { kind in
+                                Label(kind.displayName, systemImage: kind.systemImageName)
+                                    .tag(kind)
+                            }
                         }
+                        .disabled(isEditing)
                     }
-                    .disabled(isEditing)
 
                     Text(kind.plainDescription)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
-                    if !isEditing && !isShowingAdvancedKinds {
+                    if !isEditing && !isCreatingExpenseCategory && !isShowingAdvancedKinds {
                         Button("Show accounting kinds") {
                             isShowingAdvancedKinds = true
                         }
@@ -108,7 +116,7 @@ struct AccountEditorView: View {
                 }
 
                 if cleanedName.isEmpty {
-                    Text("Account name is required.")
+                    Text(isCreatingExpenseCategory ? "Category name is required." : "Account name is required.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -156,6 +164,7 @@ struct AccountEditorView: View {
                         save()
                     }
                     .disabled(cleanedName.isEmpty)
+                    .accessibilityIdentifier("account.save")
                 }
             }
         }
@@ -165,6 +174,8 @@ struct AccountEditorView: View {
         switch mode {
         case .create:
             "New Account"
+        case .createExpenseCategory:
+            "New category"
         case .edit:
             "Edit Account"
         }
@@ -176,6 +187,10 @@ struct AccountEditorView: View {
         } else {
             false
         }
+    }
+
+    private var isCreatingExpenseCategory: Bool {
+        if case .createExpenseCategory = mode { true } else { false }
     }
 
     private var cleanedName: String {
@@ -191,7 +206,7 @@ struct AccountEditorView: View {
             let didSave: Bool
 
             switch mode {
-            case .create:
+            case .create, .createExpenseCategory:
                 didSave = await appState.createAccount(
                     name: cleanedName,
                     kind: kind,

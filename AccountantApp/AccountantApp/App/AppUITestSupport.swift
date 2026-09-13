@@ -13,6 +13,7 @@ struct AppUITestFixture {
     static let resetArgument = "--accountant-ui-testing-reset"
     static let runIDVariable = "ACCOUNTANT_UI_TEST_RUN_ID"
     static let nowVariable = "ACCOUNTANT_UI_TEST_NOW"
+    static let ledgerSeedVariable = "ACCOUNTANT_UI_TEST_LEDGER_SEED"
 
     let ledgerRepository: LocalJSONLedgerRepository
     let classificationRuleRepository: LocalJSONClassificationRuleRepository
@@ -55,7 +56,10 @@ struct AppUITestFixture {
 
             let ledgerURL = fixtureDirectory.appendingPathComponent("ledger.json")
             if !FileManager.default.fileExists(atPath: ledgerURL.path) {
-                try JSONLedgerStore(fileURL: ledgerURL).save(makeLedger())
+                let ledgerSeed = LedgerSeed(
+                    rawValue: environment[ledgerSeedVariable] ?? ""
+                ) ?? .standard
+                try JSONLedgerStore(fileURL: ledgerURL).save(makeLedger(seed: ledgerSeed))
             }
 
             // Avoid onboarding and the notification permission prompt. These are
@@ -84,7 +88,12 @@ struct AppUITestFixture {
         }
     }
 
-    private static func makeLedger() -> Ledger {
+    private enum LedgerSeed: String {
+        case standard
+        case noActiveExpense = "no-active-expense"
+    }
+
+    private static func makeLedger(seed: LedgerSeed) -> Ledger {
         let eur = Currency("EUR")
         let bankID = AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000101")!)
         let eatingOutID = AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000201")!)
@@ -99,14 +108,45 @@ struct AppUITestFixture {
                 sortOrder: 1
             )
         )
-        ledger.addAccount(
-            Account(
-                id: eatingOutID,
-                name: "Eating out",
-                kind: .expense,
-                sortOrder: 2
+        switch seed {
+        case .standard:
+            ledger.addAccount(
+                Account(
+                    id: eatingOutID,
+                    name: "Eating out",
+                    kind: .expense,
+                    sortOrder: 2
+                )
             )
-        )
+
+        case .noActiveExpense:
+            ledger.addAccount(
+                Account(
+                    id: AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000102")!),
+                    name: "Fixture Savings",
+                    kind: .asset,
+                    currency: eur,
+                    sortOrder: 2
+                )
+            )
+            ledger.addAccount(
+                Account(
+                    id: AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000301")!),
+                    name: "Fixture Salary",
+                    kind: .income,
+                    sortOrder: 3
+                )
+            )
+            ledger.addAccount(
+                Account(
+                    id: AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000202")!),
+                    name: "Archived dining",
+                    kind: .expense,
+                    status: .archived,
+                    sortOrder: 4
+                )
+            )
+        }
         return ledger
     }
 

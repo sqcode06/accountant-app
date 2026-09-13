@@ -40,16 +40,18 @@ struct BudgetView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    presentedSheet = .categoryPicker
+                    beginSettingLimit(hasCategories: !categories.isEmpty)
                 } label: {
-                    Label("Set a limit", systemImage: "plus")
+                    Label(categories.isEmpty ? "Add a category" : "Set a limit", systemImage: "plus")
                 }
-                .disabled(categories.isEmpty)
                 .accessibilityIdentifier("budget.setLimit.toolbar")
             }
         }
         .sheet(item: $presentedSheet) { sheet in
             switch sheet {
+            case .newCategory:
+                AccountEditorView(mode: .createExpenseCategory)
+                    .environmentObject(appState)
             case .categoryPicker:
                 BudgetCategoryPicker(categories: categories) { category in
                     presentedSheet = .editor(
@@ -233,20 +235,48 @@ struct BudgetView: View {
     }
 
     private func emptyState(hasCategories: Bool) -> some View {
-        ContentUnavailableView {
-            Label("No budget for this month", systemImage: "chart.bar")
-        } description: {
-            Text("Set a limit on the categories you want to keep an eye on. Limits repeat every month from their start month until you change or stop them.")
-        } actions: {
+        // This is a List row, not a full-screen unavailable view. Keep the action
+        // at its natural height and make its title explicit on every iOS version.
+        VStack(spacing: Metrics.Space.l) {
+            Image(systemName: "chart.bar")
+                .font(.system(size: 44))
+                .foregroundStyle(Theme.inkMuted)
+                .accessibilityHidden(true)
+
+            Text(hasCategories ? "No budget for this month" : "No categories yet")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+
+            Text(hasCategories
+                 ? "Set a limit on the categories you want to keep an eye on. Limits repeat every month from their start month until you change or stop them."
+                 : "Create an expense category, such as Groceries, then set its monthly limit.")
+                .font(.body)
+                .foregroundStyle(Theme.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
             Button {
-                presentedSheet = .categoryPicker
+                beginSettingLimit(hasCategories: hasCategories)
             } label: {
-                Label("Set a limit", systemImage: "plus")
+                HStack(spacing: Metrics.Space.s) {
+                    Image(systemName: "plus")
+                        .accessibilityHidden(true)
+                    Text(hasCategories ? "Set a limit" : "Add a category")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, Metrics.Space.s)
+                .frame(minHeight: 44)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!hasCategories)
+            .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("budget.setLimit.empty")
         }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Metrics.Space.xl)
+    }
+
+    private func beginSettingLimit(hasCategories: Bool) {
+        presentedSheet = hasCategories ? .categoryPicker : .newCategory
     }
 
     // MARK: - Derived
@@ -290,11 +320,14 @@ struct BudgetView: View {
 }
 
 private enum BudgetSheet: Identifiable {
+    case newCategory
     case categoryPicker
     case editor(EditableCategory)
 
     var id: String {
         switch self {
+        case .newCategory:
+            return "new-category"
         case .categoryPicker:
             return "category-picker"
         case let .editor(editable):

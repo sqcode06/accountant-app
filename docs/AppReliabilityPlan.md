@@ -6,9 +6,9 @@ reviews at extra-high effort covered budget interactions, persistence, and test
 coverage. An Astra review at extra-high effort challenged their findings and
 independently reproduced the principal persistence failures.
 
-**Status: first implementation pass in progress; native verification is still
-required.** The budget behavior and reported Stop exit still need native
-evidence. Licensing drafts are separate.
+**Status: first implementation pass passed native CI on iOS 18.5; further
+stabilization remains open.** A later iOS 26.2 device report exposed a disabled,
+stretched empty-budget action. The reported Stop exit remains undiagnosed.
 
 ## Implementation update — 2026-09-14
 
@@ -29,7 +29,17 @@ evidence. Licensing drafts are separate.
 - REL-07/08: a shared scheme, test plan, debug-only isolated launch fixture,
   behavioral budget UI test, and [macOS workflow](../.github/workflows/ios.yml)
   have been added. The stale load fixture and debounced-save assertion are
-  corrected. A configured workflow does not establish a successful iOS build.
+  corrected. Revision `f9c2af3` passed a Release build, 46 app tests, and two UI
+  tests in [native CI](https://github.com/sqcode06/accountant-app/actions/runs/34783889829).
+
+The subsequent iOS 26.2 empty-budget report exposed two coverage gaps: the
+fixture always included an active expense category, and the only native runtime
+was iOS 18.5. Both Budget add controls were disabled when that category list was
+empty, with no explanation or way forward on the screen. The repair offers
+category creation from both entry points and uses an explicitly sized, labelled
+button instead of a full-screen unavailable-view action inside a List row.
+BUD-08 covers the missing state; CI now includes iOS 26.2 as well as iOS 18.5.
+These additions require passing results on the revision being built.
 
 The core suite and a temporary Linux package compiling the current AppState,
 repository, helper, and app-test sources pass. That temporary package substitutes
@@ -212,6 +222,7 @@ exit honestly; simulator success alone does not identify its cause.
 | BUD-05 | Stop the only target and one of several targets; repeat for a new and an inherited target, with and without spending. | App stays running; the target stops from the selected month onward; earlier history and other categories survive. Spending history may still appear after its target stops. Navigation remains available when the report is empty. Core + app + UI. |
 | BUD-06 | Relaunch after acknowledged Stop completion; inject save failure and interruption at documented checkpoints. | A completed Stop survives relaunch. Pending/failed saves are distinguishable and retryable; reloaded state satisfies the persistence contract. App real-file tests + UI relaunch. |
 | BUD-07 | Cross month/year boundaries, foregrounding, timezone changes, and clock corrections; repeat while viewing history and editing. | Current selection follows the calendar; deliberate history browsing stays explicit; an open editor retains its intended month; money stays in the transaction's defined month. Unit + app + targeted native tests. |
+| BUD-08 | Open Budget without active expense categories; include assets, income, and an archived expense. Use and cancel toolbar creation, then create a category and limit from the central action. Repeat with an active expense and no limit. | Both actions remain enabled and reach the correct next step; the central button shows its title with a usable horizontal layout; the new limit appears. UI on iOS 18.5 and 26.2, with screenshots. |
 
 ## Expected-behavior matrix
 
