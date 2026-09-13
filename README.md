@@ -2,6 +2,31 @@
 
 A personal budgeting app for iOS, and the accounting engine underneath it.
 
+## License and contributions
+
+Accountant is developed and maintained by **Oleksandr Mazur**. Its source is
+public so people can understand it, test it, and contribute improvements.
+
+New material is offered under the [Accountant Source Available License](LICENSE).
+It permits private personal use, study, evaluation, testing, and contributions,
+including source forks on GitHub. Outside those permissions, it restricts reuse
+in other products and redistribution of source or app builds unless the owner
+gives separate written permission. These terms cover both the app and
+`AccountantCore`, as well as the project's tests, documentation, and assets.
+
+**Earlier MIT permissions remain in effect.** Material already published under
+MIT can still be reused and redistributed under MIT, including in independent
+forks. The new license cannot take those permissions back. See the
+[license history and scope](docs/Licensing.md) and the preserved
+[MIT notice](licenses/MIT-legacy.txt).
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting original work. The
+contribution process requires a separate signed copyright assignment before
+original contributions from others are incorporated. Publishing a pull request
+or checking a box does not itself transfer copyright.
+
+## Project layout
+
 Two things live in this repository:
 
 - **`Sources/AccountantCore`** — a UI-free Swift package that knows how money moves. No SwiftUI, no bank APIs, no platform persistence. It builds and tests on Linux, which is what makes the fast development loop possible.
