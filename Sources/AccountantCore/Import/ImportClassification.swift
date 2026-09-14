@@ -20,6 +20,10 @@ public extension ImportPipeline {
                         now: now
                     )
 
+                    if let error = firstAccountError(in: classifiedDraft, ledger: ledger) {
+                        return ImportLineOutcome.failed(line: line, error: error)
+                    }
+
                     return ImportLineOutcome.proposed(
                         line: line,
                         draft: classifiedDraft,

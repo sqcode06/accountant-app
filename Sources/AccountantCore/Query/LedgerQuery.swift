@@ -10,25 +10,6 @@ public struct AccountStatementLine: Hashable, Codable, Sendable {
 
 public extension Ledger {
 
-    func transactions(in range: ClosedRange<Date>, includeDrafts: Bool = true) -> [Transaction] {
-        allTransactionsSorted(includeDrafts: includeDrafts).filter { range.contains($0.date) }
-    }
-
-    func transactions(involving accountID: AccountID, includeDrafts: Bool = true) -> [Transaction] {
-        allTransactionsSorted(includeDrafts: includeDrafts).filter { tx in
-            tx.postings.contains { $0.accountID == accountID }
-        }
-    }
-
-    func transactions(matching text: String, includeDrafts: Bool = true) -> [Transaction] {
-        let q = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return allTransactionsSorted(includeDrafts: includeDrafts) }
-
-        return allTransactionsSorted(includeDrafts: includeDrafts).filter { tx in
-            (tx.memo ?? "").lowercased().contains(q)
-        }
-    }
-
     /// Balance for a given account, but only including transactions up to (and including) `date`.
     func balance(of accountID: AccountID, currency: Currency, asOf date: Date, includeDrafts: Bool = true) -> Money {
         let txs = includeDrafts ? transactions : transactions.filter { $0.state == .finalized }

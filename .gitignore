@@ -65,3 +65,15 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Swift Package Manager build output
+.build/
+
+# Private product/commercial material — never commit to a public repo
+docs/product-assessment/
+
+# Bank statement samples — real financial data, never commit
+samples/
+
+# Personal Claude Code permissions and machine-specific settings
+.claude/settings.local.json

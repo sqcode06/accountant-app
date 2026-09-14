@@ -34,8 +34,9 @@ public struct ClassificationSuggestion: Equatable, Sendable {
     /// Applies a suggestion to a draft transaction and returns a modified copy.
     ///
     /// The method intentionally does not mutate the input transaction. If a
-    /// counterparty account is suggested, exactly one non-statement posting must
-    /// exist; otherwise, the classification is considered ambiguous and fails.
+    /// counterparty account is suggested, an explicitly tagged counterparty wins.
+    /// Legacy untagged transactions retain the safe fallback of requiring exactly
+    /// one non-statement posting; arbitrary splits remain ambiguous.
     public func applying(
         to transaction: Transaction,
         statementAccountID: AccountID,
@@ -60,29 +61,63 @@ public struct ClassificationSuggestion: Equatable, Sendable {
                 throw ClassificationError.statementPostingNotFound(statementAccountID)
             }
 
-            let counterpartyIndices = updated.postings.indices.filter {
-                updated.postings[$0].accountID != statementAccountID
-            }
-
-            guard !counterpartyIndices.isEmpty else {
-                throw ClassificationError.counterpartyPostingNotFound
-            }
-
-            guard counterpartyIndices.count == 1 else {
-                throw ClassificationError.ambiguousCounterpartyPostings
-            }
-
-            let index = counterpartyIndices[0]
+            let index = try counterpartyIndex(
+                in: updated,
+                statementAccountID: statementAccountID
+            )
             let existing = updated.postings[index]
             updated.postings[index] = Posting(
                 accountID: accountID,
-                money: existing.money
+                money: existing.money,
+                cleared: existing.cleared,
+                role: existing.role
             )
         }
 
         updated.touch(now: now)
         try updated.validate()
         return updated
+    }
+
+    private func counterpartyIndex(
+        in transaction: Transaction,
+        statementAccountID: AccountID
+    ) throws -> Int {
+        let taggedCounterparties = transaction.postings.indices.filter {
+            transaction.postings[$0].role == .counterparty
+        }
+
+        if taggedCounterparties.count == 1 {
+            let index = taggedCounterparties[0]
+            guard transaction.postings[index].accountID != statementAccountID else {
+                throw ClassificationError.counterpartyPostingNotFound
+            }
+            return index
+        }
+
+        if taggedCounterparties.count > 1 {
+            throw ClassificationError.ambiguousCounterpartyPostings
+        }
+
+        // A partially tagged transaction is malformed metadata, not a license to
+        // guess that its fee (or another special posting) is the counterparty.
+        guard transaction.postings.allSatisfy({ $0.role == nil }) else {
+            throw ClassificationError.counterpartyPostingNotFound
+        }
+
+        // Backward compatibility for old two-posting transactions. Arbitrary
+        // legacy splits remain ambiguous rather than choosing the first posting.
+        let untaggedCounterparties = transaction.postings.indices.filter {
+            transaction.postings[$0].accountID != statementAccountID
+        }
+
+        guard !untaggedCounterparties.isEmpty else {
+            throw ClassificationError.counterpartyPostingNotFound
+        }
+        guard untaggedCounterparties.count == 1 else {
+            throw ClassificationError.ambiguousCounterpartyPostings
+        }
+        return untaggedCounterparties[0]
     }
 }
 

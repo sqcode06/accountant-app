@@ -47,9 +47,40 @@ public struct Ledger: Sendable {
         }
 
         try tx.validate()
-        try ensureAccountsExistAndAreActive(for: tx)
+        try ensurePostingsAreAcceptable(for: tx)
 
         transactions.append(tx)
+    }
+
+    /// Validates a complete ledger reconstructed from stored or imported data.
+    ///
+    /// This differs deliberately from adding a new transaction. Historical
+    /// transactions may still point at archived accounts; archival hides an
+    /// account from new entry without invalidating the facts already recorded.
+    public func validate() throws {
+        var transactionIDs = Set<TransactionID>()
+
+        for account in accounts.values {
+            guard account.id.rawValue != Self.nilUUID else {
+                throw LedgerValidationError.invalidAccountID(account.id)
+            }
+
+            if let currency = account.currency, !currency.hasValidCode {
+                throw LedgerError.invalidCurrencyCode(currency.code)
+            }
+        }
+
+        for transaction in transactions {
+            guard transaction.id.rawValue != Self.nilUUID else {
+                throw LedgerValidationError.invalidTransactionID(transaction.id)
+            }
+            guard transactionIDs.insert(transaction.id).inserted else {
+                throw LedgerError.duplicateTransactionID(transaction.id)
+            }
+
+            try transaction.validate()
+            try ensureHistoricalPostingsAreValid(for: transaction)
+        }
     }
 
     public mutating func updateDraftTransaction(
@@ -66,7 +97,7 @@ public struct Ledger: Sendable {
         tx.touch(now: now)
 
         try tx.validate()
-        try ensureAccountsExistAndAreActive(for: tx)
+        try ensurePostingsAreAcceptable(for: tx)
 
         transactions[idx] = tx
     }
@@ -78,9 +109,45 @@ public struct Ledger: Sendable {
         guard tx.state == .draft else { return } // idempotent
 
         try tx.validate()
-        try ensureAccountsExistAndAreActive(for: tx)
+        try ensurePostingsAreAcceptable(for: tx)
         tx.finalize(now: now)
         transactions[idx] = tx
+    }
+
+    /// Finalizes several transactions as one unit.
+    ///
+    /// Atomic on purpose. This backs the end-of-day review, where the user
+    /// confirms a batch captured in a hurry: if one of them is no longer valid —
+    /// an account archived since capture, say — the whole confirmation fails and
+    /// nothing is half-committed. A partially confirmed batch is worse than a
+    /// failed one, because there is no way to tell which half went through.
+    ///
+    /// Already-finalized transactions are skipped rather than treated as errors,
+    /// matching `finalizeTransaction`. Returns the number actually finalized.
+    @discardableResult
+    public mutating func finalizeTransactions(
+        ids: [TransactionID],
+        now: Date = Date()
+    ) throws -> Int {
+        var working = self
+        var finalized = 0
+
+        for id in ids {
+            let idx = try working.indexOfTransaction(id)
+
+            guard working.transactions[idx].state == .draft else { continue }
+
+            try working.finalizeTransaction(id: id, now: now)
+            finalized += 1
+        }
+
+        self = working
+        return finalized
+    }
+
+    /// Transactions awaiting review, oldest first.
+    public func draftTransactions() -> [Transaction] {
+        allTransactionsSorted(includeDrafts: true).filter { $0.state == .draft }
     }
 
     public mutating func deleteDraftTransaction(id: TransactionID) throws {
@@ -88,6 +155,38 @@ public struct Ledger: Sendable {
         let tx = transactions[idx]
         guard tx.state == .draft else { throw LedgerError.transactionFinalized(id) }
         transactions.remove(at: idx)
+    }
+
+    /// Removes every transaction, finalized ones included, and keeps the accounts.
+    ///
+    /// This deliberately breaks the rule that finalized transactions are permanent,
+    /// so it is named to be hard to reach for by accident and kept well away from
+    /// `deleteDraftTransaction`. It is an administrative reset — start the books
+    /// over without rebuilding the chart of accounts — not part of bookkeeping.
+    ///
+    /// Anything calling this should be behind an explicit confirmation.
+    public mutating func removeAllTransactions() {
+        transactions.removeAll()
+    }
+
+    /// Removes accounts that have never been used, keeping the rest.
+    ///
+    /// An account referenced by any transaction is left alone: deleting it would
+    /// strand postings pointing at nothing, which no invariant could repair.
+    /// Returns the accounts actually removed.
+    @discardableResult
+    public mutating func removeUnusedAccounts() -> [Account] {
+        let referenced = Set(transactions.flatMap { $0.postings.map(\.accountID) })
+
+        let removable = accounts.values
+            .filter { !referenced.contains($0.id) }
+            .sorted { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }
+
+        for account in removable {
+            accounts.removeValue(forKey: account.id)
+        }
+
+        return removable
     }
 
     public func exportFinalizedSnapshot() -> Ledger {
@@ -131,7 +230,10 @@ public struct Ledger: Sendable {
         }
     }
 
-    private func ensureAccountsExistAndAreActive(for tx: Transaction) throws {
+    /// Checks every posting against the account it targets: the account must exist,
+    /// be active, and — if it declares a currency — be denominated in the currency
+    /// the posting uses.
+    private func ensurePostingsAreAcceptable(for tx: Transaction) throws {
         for p in tx.postings {
             guard let account = accounts[p.accountID] else {
                 throw LedgerError.unknownAccount(p.accountID)
@@ -140,8 +242,35 @@ public struct Ledger: Sendable {
             guard account.status == .active else {
                 throw LedgerError.accountArchived(p.accountID)
             }
+
+            // An account with no declared currency accepts any currency.
+            if let declared = account.currency, declared != p.money.currency {
+                throw LedgerError.accountCurrencyMismatch(
+                    p.accountID,
+                    expected: declared,
+                    actual: p.money.currency
+                )
+            }
         }
     }
+
+    private func ensureHistoricalPostingsAreValid(for tx: Transaction) throws {
+        for posting in tx.postings {
+            guard let account = accounts[posting.accountID] else {
+                throw LedgerError.unknownAccount(posting.accountID)
+            }
+
+            if let declared = account.currency, declared != posting.money.currency {
+                throw LedgerError.accountCurrencyMismatch(
+                    posting.accountID,
+                    expected: declared,
+                    actual: posting.money.currency
+                )
+            }
+        }
+    }
+
+    private static let nilUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
     // MARK: - Internal hooks (module-only)
 
@@ -197,7 +326,16 @@ extension Ledger: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let accountsArray = try c.decode([Account].self, forKey: .accounts)
-        self.accounts = Dictionary(uniqueKeysWithValues: accountsArray.map { ($0.id, $0) })
+
+        var decodedAccounts: [AccountID: Account] = [:]
+        for account in accountsArray {
+            guard decodedAccounts.updateValue(account, forKey: account.id) == nil else {
+                throw LedgerValidationError.duplicateAccountID(account.id)
+            }
+        }
+
+        self.accounts = decodedAccounts
         self.transactions = try c.decode([Transaction].self, forKey: .transactions)
+        try validate()
     }
 }

@@ -1,84 +1,198 @@
 import SwiftUI
+import UIKit
 import AccountantCore
 
+/// Four tabs, down from five.
+///
+/// The old set mirrored the core package's folder layout — Summary, Transactions,
+/// Import, Reconcile, Accounts — which meant two occasional chores held permanent
+/// places. Import is a thing you do when a statement arrives; Reconcile is a thing
+/// you do inside one account. Neither is somewhere you live.
+///
+/// What replaced them earns its place: Budget is the reason the app exists, and
+/// Activity is where the record lives.
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var themeManager: ThemeManager
+    @EnvironmentObject private var onboarding: OnboardingController
+    @EnvironmentObject private var reminders: ReviewReminderController
+    @Environment(\.appClock) private var clock
+    @Environment(\.scenePhase) private var scenePhase
 
-    var body: some View {
-        TabView {
-            loadedTab(title: "Summary") {
-                DashboardView()
-            }
-            .tabItem {
-                Label("Summary", systemImage: "chart.pie.fill")
-            }
+    @State private var isPresentingCapture = false
+    @State private var isPresentingOnboarding = false
 
-            loadedTab(title: "Transactions") {
-                TransactionListView()
-            }
-            .tabItem {
-                Label("Transactions", systemImage: "list.bullet.rectangle.portrait.fill")
-            }
+    /// Held here, above the theme rebuild, so switching theme leaves you on the
+    /// tab you were already looking at.
+    @State private var selectedTab = Tab.overview
 
-            loadedTab(title: "Import") {
-                ImportPreviewScreen()
-            }
-            .tabItem {
-                Label("Import", systemImage: "tray.and.arrow.down.fill")
-            }
-
-            loadedTab(title: "Reconcile") {
-                ReconciliationView()
-            }
-            .tabItem {
-                Label("Reconcile", systemImage: "checkmark.seal.fill")
-            }
-
-            loadedTab(title: "Accounts") {
-                AccountListView()
-            }
-            .tabItem {
-                Label("Accounts", systemImage: "tray.full.fill")
-            }
-        }
-        .alert(item: $appState.lastError) { error in
-            Alert(
-                title: Text("Accountant"),
-                message: Text(error.message),
-                dismissButton: .default(Text("OK"))
-            )
-        }
+    private enum Tab: Hashable {
+        case overview, budget, activity, settings
     }
 
+    var body: some View {
+        VStack(spacing: 0) {
+            if appState.isDataLocked {
+                DataRecoveryBanner()
+                    .environmentObject(appState)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            tabs
+        }
+        .animation(.snappy(duration: 0.25), value: appState.isDataLocked)
+    }
+
+    private var tabs: some View {
+        TabView(selection: $selectedTab) {
+            tab(title: "Overview", systemImage: "square.grid.2x2") {
+                OverviewView()
+            }
+            .tag(Tab.overview)
+
+            tab(title: "Budget", systemImage: "chart.bar") {
+                BudgetView()
+            }
+            .tag(Tab.budget)
+
+            tab(title: "Activity", systemImage: "list.bullet") {
+                ActivityView()
+            }
+            .tag(Tab.activity)
+
+            tab(title: "Settings", systemImage: "gearshape") {
+                SettingsView()
+            }
+            .tag(Tab.settings)
+        }
+        .tint(Theme.accent)
+        // A theme only defines an appearance override when it has a palette for
+        // just one. Themes covering both leave the system setting alone.
+        .preferredColorScheme(themeManager.forcedColorScheme)
+        .sheet(isPresented: $isPresentingCapture) {
+            QuickEntryView()
+                .environmentObject(appState)
+        }
+        .fullScreenCover(isPresented: $isPresentingOnboarding) {
+            OnboardingView { isPresentingOnboarding = false }
+                .environmentObject(appState)
+                .environmentObject(onboarding)
+        }
+        // Read once, on launch. Reading the controller directly in the binding
+        // would slam the guide shut the instant its status changed, before the
+        // finishing work had a chance to run.
+        .task {
+            isPresentingOnboarding = onboarding.shouldPresent
+            await reminders.refreshAuthorization(for: appState.ledger)
+        }
+        // The reminder also names the oldest draft's age. Watching the drafts
+        // catches restores that replace a queue with the same number of entries.
+        .onChange(of: appState.draftTransactions) { _, _ in
+            reminders.refresh(for: appState.ledger, now: clock.now())
+        }
+        // Permission, clock, time zone, and the pending one-shot request may all
+        // have changed while the app was away. Reconcile them on every return.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                await reminders.refreshAuthorization(for: appState.ledger)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.significantTimeChangeNotification
+        )) { _ in
+            guard scenePhase == .active else { return }
+            reminders.refresh(for: appState.ledger, now: clock.now())
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSNotification.Name.NSSystemTimeZoneDidChange
+        )) { _ in
+            guard scenePhase == .active else { return }
+            reminders.refresh(for: appState.ledger, now: clock.now())
+        }
+        .appErrorAlert()
+    }
+
+    /// Every tab carries the capture button. Recording a purchase is the single
+    /// most frequent thing anyone does here, so it should never be more than one
+    /// tap away regardless of where you happen to be.
     @ViewBuilder
-    private func loadedTab<Content: View>(
+    private func tab<Content: View>(
         title: String,
+        systemImage: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
         NavigationStack {
             Group {
                 if appState.isLoading {
-                    ProgressView("Loading ledger...")
+                    ProgressView()
                 } else {
                     content()
                 }
             }
-            .navigationTitle(title)
+            // Forces a real rebuild when the theme changes. `Theme` resolves
+            // through a static, which SwiftUI's dependency tracking cannot see, so
+            // without this the app keeps drawing the previous palette until
+            // something unrelated happens to invalidate it.
+            //
+            // Deliberately inside the NavigationStack and below the tab item: an
+            // `.id()` on the tab child itself would change the identity TabView
+            // uses for selection and fight the `.tag` above.
+            .id(themeManager.generation)
+            .background(Theme.canvas)
+            .overlay(alignment: .bottomTrailing) {
+                if !appState.isLoading {
+                    CaptureButton { isPresentingCapture = true }
+                        .padding(Metrics.Space.l)
+                }
+            }
         }
+        .tabItem {
+            Label(title, systemImage: systemImage)
+        }
+    }
+}
+
+/// The one persistent action in the app.
+private struct CaptureButton: View {
+    let action: () -> Void
+
+    @State private var isPressed = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "plus")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Theme.inkInverse)
+                .frame(width: 56, height: 56)
+                .background(Theme.accent, in: Circle())
+                .shadow(color: Theme.accent.opacity(0.35), radius: 12, y: 6)
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(isPressed ? 0.92 : 1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isPressed)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
+        .accessibilityLabel("Record spending")
+        .accessibilityIdentifier("capture.open")
     }
 }
 
 #Preview {
     ContentView()
-        .environmentObject(
-            AppState(repository: PreviewLedgerRepository())
-        )
+        .environmentObject(AppState(dataRepository: PreviewLedgerRepository()))
+        .environmentObject(ThemeManager())
+        .environmentObject(OnboardingController())
+        .environmentObject(AppIconManager())
 }
 
-private struct PreviewLedgerRepository: LedgerRepository {
-    func loadOrCreate() async throws -> Ledger {
-        Ledger()
+private struct PreviewLedgerRepository: AppDataRepository {
+    func load() async -> AppDataLoadResult {
+        AppDataLoadResult(data: LedgerBackup(ledger: Ledger()))
     }
 
-    func save(_ ledger: Ledger) async throws {}
+    func save(_ data: LedgerBackup) async throws {}
 }

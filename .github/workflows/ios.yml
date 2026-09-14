@@ -1,0 +1,204 @@
+name: iOS
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-tests:
+    name: Xcode ${{ matrix.xcode }} / iOS ${{ matrix.ios }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - xcode: "16.4"
+            ios: "18.5"
+            developer_dir: /Applications/Xcode_16.4.app/Contents/Developer
+            destination: platform=iOS Simulator,name=iPhone 16,OS=18.5
+            artifact_suffix: xcode16.4-ios18.5
+          - xcode: "26.2"
+            ios: "26.2"
+            developer_dir: /Applications/Xcode_26.2.app/Contents/Developer
+            destination: platform=iOS Simulator,name=iPhone 16,OS=26.2
+            artifact_suffix: xcode26.2-ios26.2
+    defaults:
+      run:
+        working-directory: renamed-ios-checkout
+    env:
+      DEVELOPER_DIR: ${{ matrix.developer_dir }}
+      PROJECT: AccountantApp/AccountantApp.xcodeproj
+      SCHEME: AccountantApp
+      TEST_PLAN: AccountantApp
+      DESTINATION: ${{ matrix.destination }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: renamed-ios-checkout
+
+      - name: Record toolchain and revision
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          git rev-parse HEAD > artifacts/revision.txt
+          xcodebuild -version | tee artifacts/xcode-version.txt
+          xcrun simctl list runtimes | tee artifacts/simulator-runtimes.txt
+
+      - name: Build the Release iOS app
+        shell: bash
+        env:
+          DERIVED_DATA: ${{ runner.temp }}/AccountantDerivedData
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
+            build 2>&1 | tee artifacts/xcodebuild.log
+
+      - name: Create unsigned device archive and validate privacy metadata
+        if: matrix.xcode == '26.2'
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/AccountantUnsignedDeviceArchive.xcarchive
+          DERIVED_DATA: ${{ runner.temp }}/AccountantArchiveDerivedData
+          METADATA_REPORT: artifacts/unsigned-device-archive-metadata.json
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            archive 2>&1 | tee artifacts/xcodebuild-unsigned-device-archive.log
+
+          ARCHIVE_PATH="$ARCHIVE_PATH" METADATA_REPORT="$METADATA_REPORT" /usr/bin/python3 - <<'PY'
+          import json
+          import os
+          import plistlib
+          import re
+          from pathlib import Path
+
+          archive = Path(os.environ["ARCHIVE_PATH"])
+          report_path = Path(os.environ["METADATA_REPORT"])
+          app = archive / "Products/Applications/AccountantApp.app"
+          info_path = app / "Info.plist"
+          privacy_path = app / "PrivacyInfo.xcprivacy"
+
+          if not app.is_dir():
+              raise SystemExit(f"Archived app is missing: {app}")
+          if not info_path.is_file():
+              raise SystemExit(f"Archived Info.plist is missing: {info_path}")
+          if not privacy_path.is_file():
+              raise SystemExit(f"Archived privacy manifest is missing: {privacy_path}")
+
+          with info_path.open("rb") as file:
+              info = plistlib.load(file)
+          with privacy_path.open("rb") as file:
+              privacy = plistlib.load(file)
+
+          expected_access = [{
+              "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+              "NSPrivacyAccessedAPITypeReasons": ["CA92.1"],
+          }]
+          expected_privacy = {
+              "NSPrivacyTracking": False,
+              "NSPrivacyCollectedDataTypes": [],
+              "NSPrivacyAccessedAPITypes": expected_access,
+          }
+          for key, expected in expected_privacy.items():
+              if privacy.get(key) != expected:
+                  raise SystemExit(
+                      f"Unexpected privacy manifest {key}: {privacy.get(key)!r}; expected {expected!r}"
+                  )
+
+          expected_info = {
+              "CFBundleIdentifier": "dev.sqcode.AccountantApp",
+              "CFBundleSupportedPlatforms": ["iPhoneOS"],
+              "UIDeviceFamily": [1, 2],
+          }
+          for key, expected in expected_info.items():
+              if info.get(key) != expected:
+                  raise SystemExit(
+                      f"Unexpected archived app {key}: {info.get(key)!r}; expected {expected!r}"
+                  )
+
+          version = info.get("CFBundleShortVersionString", "")
+          build = info.get("CFBundleVersion", "")
+          if not isinstance(version, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", version):
+              raise SystemExit(f"Invalid marketing version: {version!r}")
+          if not isinstance(build, str) or not re.fullmatch(r"[1-9][0-9]*", build):
+              raise SystemExit(f"Expected a positive integer build number: {build!r}")
+
+          report_path.write_text(json.dumps({
+              "archive": str(archive),
+              "app": str(app),
+              "privacy": privacy,
+              "identity": {key: info[key] for key in expected_info} | {
+                  "CFBundleShortVersionString": version,
+                  "CFBundleVersion": build,
+              },
+          }, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Run native unit and UI tests
+        shell: bash
+        env:
+          DERIVED_DATA: ${{ runner.temp }}/AccountantDerivedData
+          RESULT_BUNDLE: ${{ runner.temp }}/AccountantAppTests.xcresult
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -testPlan "$TEST_PLAN" \
+            -configuration Debug \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RESULT_BUNDLE" \
+            test 2>&1 | tee artifacts/xcode-test.log
+
+      - name: Collect UI-test screenshots
+        if: always()
+        shell: bash
+        env:
+          RESULT_BUNDLE: ${{ runner.temp }}/AccountantAppTests.xcresult
+        run: |
+          if [[ -d "$RESULT_BUNDLE" ]]; then
+            xcrun xcresulttool export attachments \
+              --path "$RESULT_BUNDLE" \
+              --output-path artifacts/screenshots || true
+          fi
+
+      - name: Stage result bundle
+        if: always()
+        shell: bash
+        env:
+          RESULT_BUNDLE: ${{ runner.temp }}/AccountantAppTests.xcresult
+        run: |
+          if [[ -d "$RESULT_BUNDLE" ]]; then
+            ditto "$RESULT_BUNDLE" artifacts/AccountantAppTests.xcresult
+          fi
+
+      - name: Upload native diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-native-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_suffix }}
+          path: renamed-ios-checkout/artifacts
+          if-no-files-found: error
+          retention-days: 14

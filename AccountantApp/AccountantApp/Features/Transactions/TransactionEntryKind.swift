@@ -1,4 +1,3 @@
-import SwiftUI
 import AccountantCore
 
 enum TransactionEntryKind: String, CaseIterable, Identifiable {
@@ -92,14 +91,15 @@ enum TransactionEntryKind: String, CaseIterable, Identifiable {
         }
     }
 
-    var tint: Color {
+    /// One line explaining what this type records, shown under the type switcher.
+    var summary: String {
         switch self {
         case .expense:
-            .red
+            "Money leaving an account for a category."
         case .income:
-            .green
+            "Money arriving into an account from a source."
         case .transfer:
-            .blue
+            "Money moving between two of your own accounts."
         }
     }
 }

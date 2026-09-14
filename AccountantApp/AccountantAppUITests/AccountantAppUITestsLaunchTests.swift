@@ -1,25 +1,31 @@
 import XCTest
 
 final class AccountantAppUITestsLaunchTests: XCTestCase {
-
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
-    }
-
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
     @MainActor
-    func testLaunch() throws {
+    func testFixtureLaunchesWithoutOnboardingOrProductionData() throws {
         let app = XCUIApplication()
+        app.launchArguments = [
+            "--accountant-ui-testing",
+            "--accountant-ui-testing-reset"
+        ]
+        app.launchEnvironment = [
+            "ACCOUNTANT_UI_TEST_RUN_ID": "launch-\(UUID().uuidString)",
+            "ACCOUNTANT_UI_TEST_NOW": "2026-09-13T12:00:00Z",
+            "AppleLanguages": "(en)",
+            "AppleLocale": "en_US",
+            "TZ": "UTC"
+        ]
         app.launch()
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
+        XCTAssertTrue(app.tabBars.buttons["Overview"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Get started"].exists)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
+        attachment.name = "Isolated fixture launch"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
