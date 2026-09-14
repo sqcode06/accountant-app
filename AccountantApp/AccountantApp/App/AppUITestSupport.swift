@@ -54,7 +54,7 @@ struct AppUITestFixture {
             ) ?? .standard
             if !FileManager.default.fileExists(atPath: seededURL.path) {
                 if !FileManager.default.fileExists(atPath: ledgerURL.path) {
-                    try JSONLedgerStore(fileURL: ledgerURL).save(makeLedger(seed: ledgerSeed))
+                    try JSONLedgerStore(fileURL: ledgerURL).save(try makeLedger(seed: ledgerSeed))
                 }
                 try Data().write(to: seededURL, options: .atomic)
             }
@@ -162,9 +162,10 @@ struct AppUITestFixture {
         case noActiveExpense = "no-active-expense"
         case importRules = "import-rules"
         case restoreErase = "restore-erase"
+        case reconciliation
     }
 
-    private static func makeLedger(seed: LedgerSeed) -> Ledger {
+    private static func makeLedger(seed: LedgerSeed) throws -> Ledger {
         let eur = Currency("EUR")
         let bankID = AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000101")!)
         let eatingOutID = AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000201")!)
@@ -261,8 +262,100 @@ struct AppUITestFixture {
             for account in accounts {
                 ledger.addAccount(account)
             }
+
+        case .reconciliation:
+            ledger.addAccount(
+                Account(
+                    id: AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000210")!),
+                    name: "Reconciliation groceries",
+                    kind: .expense,
+                    sortOrder: 2
+                )
+            )
+            ledger.addAccount(
+                Account(
+                    id: AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000310")!),
+                    name: "Reconciliation salary",
+                    kind: .income,
+                    sortOrder: 3
+                )
+            )
+            try seedReconciliationTransactions(into: &ledger, bankID: bankID, eur: eur)
         }
         return ledger
+    }
+
+    /// One cleared income, one pending expense, one draft, and one finalized
+    /// entry dated the day after the fixed UI-test clock — chosen so the
+    /// reconciliation screen's default day shows a known, checkable mismatch that
+    /// a single confirm resolves to zero. See `ReconciliationUITests`.
+    private static func seedReconciliationTransactions(
+        into ledger: inout Ledger,
+        bankID: AccountID,
+        eur: Currency
+    ) throws {
+        let groceriesID = AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000210")!)
+        let salaryID = AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000310")!)
+
+        // Matches the fixed clock this fixture launches with (see `nowVariable`'s
+        // default and the tests' explicit `ACCOUNTANT_UI_TEST_NOW`).
+        let selectedDay = Date(timeIntervalSince1970: 1_789_300_800) // 2026-09-13 12:00:00 UTC
+
+        // The final fractional second of the selected day. The old "+1 day, then
+        // subtract one whole second" cutoff excluded this instant; only
+        // `ReconciliationDate.endOfDay` includes it. Dating the one entry the UI
+        // test confirms right on this edge is what makes the native journey
+        // actually catch a cutoff regression, not just the unit tests.
+        let lastInstantOfSelectedDay = selectedDay.addingTimeInterval(43_199.5) // 2026-09-13 23:59:59.5 UTC
+
+        // Exactly the next midnight — one instant past the cutoff either way.
+        let nextMidnight = selectedDay.addingTimeInterval(43_200) // 2026-09-14 00:00:00 UTC
+
+        let income = try Transaction.draftIncome(
+            receivedIn: bankID,
+            source: salaryID,
+            amount: Money(100, currency: eur),
+            date: selectedDay.addingTimeInterval(-3 * 3600),
+            memo: "Reconciliation salary"
+        )
+        try ledger.addTransaction(income)
+        try ledger.finalizeTransaction(id: income.id, now: selectedDay)
+        try ledger.setCleared(true, forAccount: bankID, in: income.id, now: selectedDay)
+
+        // Left uncleared on purpose: this is the one entry the UI test confirms
+        // to bring the difference to zero.
+        let pendingExpense = try Transaction.draftExpense(
+            paidFrom: bankID,
+            category: groceriesID,
+            amount: Money(25, currency: eur),
+            date: lastInstantOfSelectedDay,
+            memo: "Reconciliation groceries run"
+        )
+        try ledger.addTransaction(pendingExpense)
+        try ledger.finalizeTransaction(id: pendingExpense.id, now: selectedDay)
+
+        // Left as a draft on purpose: reconciliation excludes it, even though it
+        // is dated within the selected day and appears in account activity.
+        let draftExpense = try Transaction.draftExpense(
+            paidFrom: bankID,
+            category: groceriesID,
+            amount: Money(10, currency: eur),
+            date: selectedDay,
+            memo: "Reconciliation coffee draft"
+        )
+        try ledger.addTransaction(draftExpense)
+
+        // Finalized but dated exactly the next midnight: excluded by the
+        // reconciliation cutoff, even though it counts in the account's balance.
+        let nextDayExpense = try Transaction.draftExpense(
+            paidFrom: bankID,
+            category: groceriesID,
+            amount: Money(5, currency: eur),
+            date: nextMidnight,
+            memo: "Reconciliation next-day fee"
+        )
+        try ledger.addTransaction(nextDayExpense)
+        try ledger.finalizeTransaction(id: nextDayExpense.id, now: nextMidnight)
     }
 
     private static let importRulesStatementFileName = "revolut-import-rules.csv"

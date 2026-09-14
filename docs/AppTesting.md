@@ -13,14 +13,14 @@ This document describes the app-level testing layer. The
 found on 2026-09-13, the repair priorities, native CI prerequisites, and the
 expected-behavior matrix. The native gate covers the empty-category Budget
 regression, capture and confirmation, import rules, and restore/erase. The
-restore/erase section below records the current revision and verification
-results; the reliability plan retains the earlier milestones. Broader workflow
+dated sections below record each revision and its verification results;
+the reliability plan retains the earlier milestones. Broader workflow
 coverage and hardware checks remain in that plan. Documentation-only changes
 do not alter tested code; new code changes need their own results.
 
 ## Current strategy
 
-The app tests use Swift Testing in `AccountantAppTests`.
+The app tests use Swift Testing and XCTest in `AccountantAppTests`.
 
 Most app tests focus on `AppState`. It is the boundary where SwiftUI intent
 becomes persisted ledger state, and it can be tested quickly without launching
@@ -60,6 +60,37 @@ whole frame is between the navigation and tab bars, then taps its centre when
 needed. It requires the category menu to open and the intended purchase to
 change category while retaining its separate fee. Screenshots capture the open
 menu and corrected review. Physical-device file selection remains a manual check.
+
+## Accounts and reconciliation — 2026-09-14
+
+`AccountDetailSnapshotTests` checks currency filtering, draft visibility,
+newest-first entries with chronological running balances, and cleared/pending
+amounts. It reproduced a bug where a partly cleared transaction contributed
+nothing to the cleared balance. The screen now sums each cleared posting;
+the row remains pending until all its postings for this account are cleared.
+Zero-net pending entries remain visible without inventing a nonzero balance.
+
+`ReconciliationWorkflowTests` checks clearing and undo for one side of a
+transfer, unknown IDs, and real-file failure/retry/relaunch. Clearing one
+account leaves the other account's confirmation status alone. These ordinary
+edits still debounce saving; the tests explicitly flush before asserting disk
+contents and prove a failed flush leaves the previous saved version intact.
+
+`ReconciliationDateTests` reproduced exclusion of a transaction at 23:59:59.5.
+The corrected calendar-day cutoff includes the final fractional second and
+excludes the next midnight, including on short and long daylight-saving days.
+A second reproduction found that adding a day to a 01:00 start could include
+an hour of the following day when a clock change skips midnight. The helper
+now uses the calendar day interval's actual end; that regression is also covered.
+
+All 92 app-logic checks (87 Swift Testing tests and five XCTest cases) pass in
+the portable Linux harness. It substitutes only observation declarations and
+does not validate SwiftUI rendering or navigation.
+
+The native account-management journey covers create, rename, archive, restore,
+and reopening after the app's real background flush. Reconciliation screen
+integration and its native journey are being verified in this batch. Native
+results for the previous revision below do not validate these new changes.
 
 ## Budget saves and reminders — 2026-09-14
 

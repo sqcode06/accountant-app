@@ -18,7 +18,9 @@ Before the personal beta, finish these checks:
 
 - Add an account-management screen journey: create, rename, archive, and restore.
   Check that marking statement entries as cleared saves correctly and that the
-  account screen shows the right balances after reopening.
+  account screen shows the right balances after reopening. This batch is in
+  progress, including fixes for partly cleared balances and the end-of-day
+  reconciliation cutoff; native verification is still pending.
 - Confirm actual reminder delivery and the permission explanation on an iPhone.
 - Exercise import, backup export, and restore through the real iPhone file
   picker and share sheet; the automated fixtures bypass file selection.

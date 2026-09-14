@@ -33,6 +33,15 @@ Nothing on this page asks you to enroll with Apple or publish now.
    text size and theme. For a problem, record the screen, what you did, what you
    expected, what happened, and the build being tested. A screenshot helps; keep
    private financial details out of public issue reports.
+6. **Try accounts and matching a bank statement.** Archiving an account hides it
+   from the active list; its history stays, and you can restore it. On Reconcile,
+   use the bank's closing balance and statement date, then tick the entries the
+   bank has confirmed. This changes their confirmation status for that account;
+   it does not move money. Account activity includes drafts, but reconciliation
+   leaves drafts out until you confirm them in Review. An empty checklist can
+   still have a difference to investigate. “Balance matches” describes the total;
+   check the individual entries too. Check that these distinctions make sense
+   on the screen.
 
 **Before you distribute a beta**
 

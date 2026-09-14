@@ -80,9 +80,13 @@ struct AccountDetailSnapshot: Equatable {
 
             // A line counts as cleared only when every posting behind it is.
             let isCleared = !ownPostings.isEmpty && ownPostings.allSatisfy(\.cleared)
-            if isCleared {
-                clearedTotal += line.delta.amount
-            }
+            // The balance itself is posting-based: a transaction can contain
+            // several postings for this account and only some may be cleared.
+            // Keep the row pending until all are cleared, while still including
+            // each cleared posting in the confirmed balance.
+            clearedTotal += ownPostings
+                .filter(\.cleared)
+                .reduce(Decimal.zero) { $0 + $1.money.amount }
 
             let counterparties = transaction?.postings
                 .filter { $0.accountID != account.id }

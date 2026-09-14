@@ -28,6 +28,7 @@ struct AccountListView: View {
                             } label: {
                                 AccountRowView(account: account)
                             }
+                            .accessibilityIdentifier("accounts.account.\(account.id.rawValue.uuidString)")
                             .swipeActions(edge: .trailing) {
                                 if account.status == .active {
                                     Button(role: .destructive) {
@@ -46,6 +47,7 @@ struct AccountListView: View {
                                         Label("Restore", systemImage: "arrow.uturn.backward")
                                     }
                                     .tint(.blue)
+                                    .accessibilityIdentifier("accounts.restore")
                                 }
                             }
                         }
@@ -70,6 +72,7 @@ struct AccountListView: View {
                             systemImage: isShowingArchived ? "archivebox.fill" : "archivebox"
                         )
                     }
+                    .accessibilityIdentifier("accounts.showArchived")
                 }
             }
 
@@ -79,6 +82,7 @@ struct AccountListView: View {
                 } label: {
                     Label("Add Account", systemImage: "plus")
                 }
+                .accessibilityIdentifier("accounts.add")
             }
         }
         .sheet(isPresented: $isPresentingNewAccount) {

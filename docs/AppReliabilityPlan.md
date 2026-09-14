@@ -108,6 +108,15 @@ The Settings switch represents the user's choice even if iOS blocks delivery.
 Actual notification delivery still needs a device check. These are one-shot
 reminders, not recurring daily notifications while the app stays unopened.
 
+Account-management and reconciliation coverage is now being extended. New
+snapshot and real-file workflow tests cover running balances, currency/draft
+scope, per-account clearing and undo, and failed-save retry/relaunch. They found
+and fixed a partly cleared balance bug. Calendar cutoff tests also reproduced
+and fixed exclusion of the final fractional second of the selected day. New
+native journeys are under verification; the earlier passing runs above do not
+cover this batch. [AppTesting.md](AppTesting.md) tracks its results, and
+[OwnerReview.md](OwnerReview.md) now explains what the owner should check.
+
 The previously reported exit is no
 longer reproducible by the user, so it is retained as an unresolved historical
 report rather than a confirmed current crash. The lifecycle-test timeout above

@@ -38,6 +38,7 @@ struct AccountDetailView: View {
                         } label: {
                             Label("Edit account", systemImage: "pencil")
                         }
+                        .accessibilityIdentifier("account.edit")
 
                         if isReconcilable {
                             NavigationLink {
@@ -46,6 +47,7 @@ struct AccountDetailView: View {
                             } label: {
                                 Label("Reconcile", systemImage: "checkmark.circle")
                             }
+                            .accessibilityIdentifier("account.reconcile")
                         }
 
                         Divider()
@@ -56,16 +58,19 @@ struct AccountDetailView: View {
                             } label: {
                                 Label("Archive", systemImage: "archivebox")
                             }
+                            .accessibilityIdentifier("account.archive")
                         } else {
                             Button {
                                 Task { await appState.restoreAccount(id: accountID) }
                             } label: {
                                 Label("Restore", systemImage: "arrow.uturn.backward")
                             }
+                            .accessibilityIdentifier("account.restore")
                         }
                     } label: {
                         Label("Actions", systemImage: "ellipsis.circle")
                     }
+                    .accessibilityIdentifier("account.actions")
                 }
             }
         }
@@ -182,6 +187,7 @@ private struct BalanceHeader: View {
             MoneyText(money: snapshot.balance, role: .balance, font: .figureHero)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
+                .accessibilityIdentifier("account.detail.balance")
 
             // Only worth splitting out when the two figures actually differ.
             if snapshot.hasPending {
@@ -192,7 +198,8 @@ private struct BalanceHeader: View {
                         splitColumn(
                             label: "Cleared",
                             money: snapshot.clearedBalance,
-                            tint: Theme.cleared
+                            tint: Theme.cleared,
+                            identifier: "account.detail.clearedBalance"
                         )
 
                         Spacer()
@@ -201,7 +208,8 @@ private struct BalanceHeader: View {
                             label: "Pending",
                             money: snapshot.pendingBalance,
                             tint: Theme.pending,
-                            alignment: .trailing
+                            alignment: .trailing,
+                            identifier: "account.detail.pendingBalance"
                         )
                     }
                 }
@@ -214,13 +222,15 @@ private struct BalanceHeader: View {
         label: String,
         money: Money,
         tint: Color,
-        alignment: HorizontalAlignment = .leading
+        alignment: HorizontalAlignment = .leading,
+        identifier: String
     ) -> some View {
         VStack(alignment: alignment, spacing: Metrics.Space.xs) {
             Text(label)
                 .fieldLabel(tint)
 
             MoneyText(money: money, font: .figureTrailing)
+                .accessibilityIdentifier(identifier)
         }
     }
 }

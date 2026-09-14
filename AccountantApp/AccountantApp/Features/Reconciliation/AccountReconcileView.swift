@@ -12,11 +12,20 @@ import AccountantCore
 /// is in front of you.
 struct AccountReconcileView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.appClock) private var clock
 
     let accountID: AccountID
 
     @State private var statementText = ""
-    @State private var asOf = Date()
+    @FocusState private var isStatementFieldFocused: Bool
+
+    /// `nil` until the user picks a date of their own.
+    ///
+    /// The picker's binding falls back to `clock.now()` while this stays `nil`, so
+    /// a deterministic UI-test clock sees a fixed default date and a real device
+    /// keeps tracking "today" — until the user actually chooses a date, at which
+    /// point their choice sticks rather than drifting with the clock underneath them.
+    @State private var chosenAsOf: Date?
 
     var body: some View {
         let report = self.report
@@ -43,14 +52,23 @@ struct AccountReconcileView: View {
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+            } footer: {
+                Text("Drafts stay out until you confirm them in Review. They still appear in account activity and balance. Ticking an entry marks it as cleared for this account; it moves no money.")
             }
 
             if let report {
                 if report.uncleared.isEmpty {
                     Section {
-                        Text("Everything is confirmed against a statement.")
-                            .font(.uiCaption)
-                            .foregroundStyle(Theme.inkMuted)
+                        if report.clearedDifference.amount == .zero {
+                            Text("Your statement balance matches the total you have ticked off.")
+                                .font(.uiCaption)
+                                .foregroundStyle(Theme.inkMuted)
+                        } else {
+                            Text("No entries with an outstanding amount are listed for this date. Check the statement balance and date, and look for missing or incorrect entries.")
+                                .font(.uiCaption)
+                                .foregroundStyle(Theme.pending)
+                                .accessibilityIdentifier("reconcile.uncheckedMismatch")
+                        }
                     }
                 } else {
                     Section {
@@ -68,12 +86,13 @@ struct AccountReconcileView: View {
                     } header: {
                         Text("Not yet on a statement")
                     } footer: {
-                        Text("Tick each entry as you find it on your statement. When the difference reaches zero, the account is reconciled.")
+                        Text("Tick only entries you find on your statement. A zero difference means the balances match; check the individual entries too.")
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private func statementCard(_ report: ReconciliationReport?) -> some View {
@@ -86,40 +105,68 @@ struct AccountReconcileView: View {
                     .keyboardType(.numbersAndPunctuation)
                     .font(.figurePrimary)
                     .foregroundStyle(Theme.ink)
+                    .focused($isStatementFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit { isStatementFieldFocused = false }
+                    .accessibilityIdentifier("reconcile.statementField")
             }
 
-            DatePicker("As of", selection: $asOf, displayedComponents: .date)
+            DatePicker("As of", selection: asOfBinding, displayedComponents: .date)
                 .font(.uiCaption)
+                .accessibilityIdentifier("reconcile.datePicker")
 
             if let report {
                 Hairline()
 
                 HStack {
-                    FigureBlock(
-                        label: "Confirmed",
+                    figureColumn(
+                        label: "On statement",
                         money: report.clearedBalance,
                         role: .plain,
-                        font: .figureRow
+                        identifier: "reconcile.confirmed"
                     )
 
-                    FigureBlock(
+                    figureColumn(
                         label: "Difference",
                         money: report.clearedDifference,
                         role: report.clearedDifference.amount == .zero ? .plain : .balance,
-                        font: .figureRow,
-                        alignment: .trailing
+                        alignment: .trailing,
+                        identifier: "reconcile.difference"
                     )
                 }
 
                 if report.clearedDifference.amount == .zero {
-                    Label("Reconciled", systemImage: "checkmark.circle.fill")
+                    Label("Balance matches", systemImage: "checkmark.circle.fill")
                         .font(.uiLabel)
                         .foregroundStyle(Theme.cleared)
+                        .accessibilityIdentifier("reconcile.reconciledBadge")
                 }
             }
         }
         .heroCard()
         .padding(.vertical, Metrics.Space.s)
+    }
+
+    /// Mirrors `FigureBlock`'s layout, rather than using it directly, so the
+    /// rendered money `Text` — the thing a UI test actually needs to read — can
+    /// carry its own accessibility identifier as a real leaf element.
+    private func figureColumn(
+        label: String,
+        money: Money,
+        role: MoneyText.Role,
+        alignment: HorizontalAlignment = .leading,
+        identifier: String
+    ) -> some View {
+        VStack(alignment: alignment, spacing: Metrics.Space.xs) {
+            Text(label)
+                .fieldLabel()
+
+            MoneyText(money: money, role: role, font: .figureRow)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+                .accessibilityIdentifier(identifier)
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .trailing ? .trailing : .leading)
     }
 
     // MARK: - Derived
@@ -140,7 +187,7 @@ struct AccountReconcileView: View {
         return try? appState.ledger.reconcileAccount(
             accountID,
             statementBalance: Money(statementAmount, currency: appState.currency(for: account)),
-            asOf: endOfDay(asOf)
+            asOf: ReconciliationDate.endOfDay(effectiveAsOf)
         )
     }
 
@@ -148,11 +195,16 @@ struct AccountReconcileView: View {
         DecimalParsing.decimal(from: statementText)
     }
 
-    private func endOfDay(_ date: Date) -> Date {
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: date)
+    /// Uses the app clock until the user picks a date of their own.
+    private var effectiveAsOf: Date {
+        chosenAsOf ?? clock.now()
+    }
 
-        return calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start) ?? date
+    private var asOfBinding: Binding<Date> {
+        Binding(
+            get: { effectiveAsOf },
+            set: { chosenAsOf = $0 }
+        )
     }
 }
 
@@ -188,5 +240,6 @@ private struct UnclearedRow: View {
             .padding(.vertical, Metrics.Space.xs)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("reconcile.uncleared.\(entry.transactionID.rawValue.uuidString)")
     }
 }

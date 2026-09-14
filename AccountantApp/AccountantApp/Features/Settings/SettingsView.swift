@@ -34,6 +34,7 @@ struct SettingsView: View {
                 } label: {
                     Label("Manage accounts", systemImage: "folder")
                 }
+                .accessibilityIdentifier("settings.manageAccounts")
             }
 
             Section {
