@@ -67,6 +67,94 @@ jobs:
             -derivedDataPath "$DERIVED_DATA" \
             build 2>&1 | tee artifacts/xcodebuild.log
 
+      - name: Create unsigned device archive and validate privacy metadata
+        if: matrix.xcode == '26.2'
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/AccountantUnsignedDeviceArchive.xcarchive
+          DERIVED_DATA: ${{ runner.temp }}/AccountantArchiveDerivedData
+          METADATA_REPORT: artifacts/unsigned-device-archive-metadata.json
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            archive 2>&1 | tee artifacts/xcodebuild-unsigned-device-archive.log
+
+          ARCHIVE_PATH="$ARCHIVE_PATH" METADATA_REPORT="$METADATA_REPORT" /usr/bin/python3 - <<'PY'
+          import json
+          import os
+          import plistlib
+          import re
+          from pathlib import Path
+
+          archive = Path(os.environ["ARCHIVE_PATH"])
+          report_path = Path(os.environ["METADATA_REPORT"])
+          app = archive / "Products/Applications/AccountantApp.app"
+          info_path = app / "Info.plist"
+          privacy_path = app / "PrivacyInfo.xcprivacy"
+
+          if not app.is_dir():
+              raise SystemExit(f"Archived app is missing: {app}")
+          if not info_path.is_file():
+              raise SystemExit(f"Archived Info.plist is missing: {info_path}")
+          if not privacy_path.is_file():
+              raise SystemExit(f"Archived privacy manifest is missing: {privacy_path}")
+
+          with info_path.open("rb") as file:
+              info = plistlib.load(file)
+          with privacy_path.open("rb") as file:
+              privacy = plistlib.load(file)
+
+          expected_access = [{
+              "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+              "NSPrivacyAccessedAPITypeReasons": ["CA92.1"],
+          }]
+          expected_privacy = {
+              "NSPrivacyTracking": False,
+              "NSPrivacyCollectedDataTypes": [],
+              "NSPrivacyAccessedAPITypes": expected_access,
+          }
+          for key, expected in expected_privacy.items():
+              if privacy.get(key) != expected:
+                  raise SystemExit(
+                      f"Unexpected privacy manifest {key}: {privacy.get(key)!r}; expected {expected!r}"
+                  )
+
+          expected_info = {
+              "CFBundleIdentifier": "dev.sqcode.AccountantApp",
+              "CFBundleSupportedPlatforms": ["iPhoneOS"],
+              "UIDeviceFamily": [1, 2],
+          }
+          for key, expected in expected_info.items():
+              if info.get(key) != expected:
+                  raise SystemExit(
+                      f"Unexpected archived app {key}: {info.get(key)!r}; expected {expected!r}"
+                  )
+
+          version = info.get("CFBundleShortVersionString", "")
+          build = info.get("CFBundleVersion", "")
+          if not isinstance(version, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", version):
+              raise SystemExit(f"Invalid marketing version: {version!r}")
+          if not isinstance(build, str) or not re.fullmatch(r"[1-9][0-9]*", build):
+              raise SystemExit(f"Expected a positive integer build number: {build!r}")
+
+          report_path.write_text(json.dumps({
+              "archive": str(archive),
+              "app": str(app),
+              "privacy": privacy,
+              "identity": {key: info[key] for key in expected_info} | {
+                  "CFBundleShortVersionString": version,
+                  "CFBundleVersion": build,
+              },
+          }, indent=2, sort_keys=True) + "\n")
+          PY
+
       - name: Run native unit and UI tests
         shell: bash
         env:

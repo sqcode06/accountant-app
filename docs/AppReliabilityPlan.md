@@ -8,9 +8,13 @@ independently reproduced the principal persistence failures.
 
 **Status: the Budget, import-rule, and restore/erase workflows passed native CI
 on iOS 18.5 and iOS 26.2; further stabilization remains open.** The disabled, stretched
-empty-budget action has a regression test on both runtimes. The reported Stop
-exit remains undiagnosed. REL-04 now has passing interruption and native relaunch
+empty-budget action has a regression test on both runtimes. The user can no
+longer reproduce the reported Stop exit after the month fixes; its cause and
+any connection to those fixes remain unconfirmed. REL-04 now has passing interruption and native relaunch
 tests; one intermittent Budget background-state test timeout remains recorded.
+
+For the short work order, use the [roadmap](Roadmap.md). This file retains the
+technical evidence and historical findings.
 
 ## Implementation update — 2026-09-14
 
@@ -87,8 +91,10 @@ A recurrence needs raw process-state and simulator diagnostics; it must not be
 hidden by accepting an unknown or terminated state.
 
 Next is the Budget Stop save contract and remaining reported budget workflows.
-Stop still has a debounced write window and its reported exit remains
-undiagnosed. The lifecycle-test timeout above is a separate observation.
+Stop still has a debounced write window. The previously reported exit is no
+longer reproducible by the user, so it is retained as an unresolved historical
+report rather than a confirmed current crash. The lifecycle-test timeout above
+is a separate observation.
 Completing REL-04 alone does not establish release readiness.
 
 ## Why the existing tests did not catch these problems
@@ -129,7 +135,7 @@ clone the repository and use Xcode later.
 | A newly created budget immediately displayed August although it was September. | Reproduce initial selection on a clean September launch as well as a view retained across August/September. The retained-view explanation does not establish what happened on this device. |
 | Tapping the summary card removed it completely; repeating after recreation was inconsistent. | Reproduce the exact tap targets and state transition natively. The user did not report seeing the month switch on tap. |
 | A EUR 0.10 September expense did not change the displayed EUR 20 budget, either as draft or confirmed. | Check both selected month and live report updates through capture and confirmation. |
-| Stop caused the app to exit; budget state was visible after reopening. | Capture the native failure and determine whether the visible state is an active target or historical spending. No crash log currently identifies a cause. |
+| Stop caused the app to exit; budget state was visible after reopening. | As of 2026-09-14 the user cannot reproduce it after the month fixes. Keep Stop/relaunch coverage; capture diagnostics if it returns. No crash log identifies a cause or proves a connection to those fixes. |
 
 Do not equate a disappearing view, an unsaved change, and a process crash.
 Record build revision, version/build number, OS/runtime, locale, timezone,

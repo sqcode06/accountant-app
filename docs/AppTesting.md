@@ -75,6 +75,13 @@ The successful final run includes the Budget background/relaunch check that
 timed out once during validation, as described below. Later documentation-only
 commits preserve this tested code.
 
+Distribution preparation now adds a separate unsigned Release device archive
+check to the Xcode 26.2 CI job. It reads the built app's privacy manifest and
+identity from the archive, records their values, and rejects incorrect packaging.
+This check needs its own macOS result; the earlier run above predates it. Signed
+archive validation, upload, and physical-device checks remain separate steps in
+[TestFlight preparation](TestFlight.md).
+
 The new UI journey decodes a backup, checks the replacement counts, confirms
 restore, and verifies both a finalized transaction and a draft awaiting review.
 After relaunch it checks transactions, accounts, budget limits, and import rules;

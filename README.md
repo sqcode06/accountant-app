@@ -36,11 +36,15 @@ The split is deliberate and load-bearing. Every accounting rule is in the packag
 
 ## Status
 
-The app is undergoing a reliability pass after iPhone testing exposed budget
-interaction and data-recovery problems. Budget and import-rule workflows now
-have passing native tests on iOS 18.5 and iOS 26.2. Restore/erase consistency and
-broader workflow checks remain open. See the
-[reliability status and remaining repairs](docs/AppReliabilityPlan.md).
+The personal app is undergoing a reliability pass. Budget, import-rule, and
+restore/erase workflows now have passing native tests on iOS 18.5 and iOS 26.2.
+Some workflow and physical-device checks remain. The previously reported Budget
+Stop exit is no longer reproducible by the user; its cause is still unconfirmed.
+
+The first TestFlight beta will be the personal app. Optional sign-in and sharing
+will be developed separately; Apple enrollment and publication are deferred.
+Start with the short [roadmap](docs/Roadmap.md), or open the detailed
+[reliability evidence](docs/AppReliabilityPlan.md).
 
 **Implemented workflows (verification is still in progress):**
 
@@ -63,10 +67,11 @@ broader workflow checks remain open. See the
 - recurring transactions;
 - charts.
 
-**Verified how:** code revision `d87a44d` passed 324 core tests on Linux and
-Windows. Hosted macOS CI passed Release builds, 58 app tests, and five UI tests
+**Verified how:** code revision `ad7f40e` passed 339 core tests on each of Linux and
+Windows. Hosted macOS CI passed Release builds, 64 app tests, and six UI tests
 on each supported test runtime. Those journeys cover Budget/capture/confirmation
-and import-rule management, CSV preview, review correction, saving, and relaunch.
+and import-rule management, CSV preview, review correction, saving, restore,
+erase, and relaunch.
 The run links and manual-testing boundaries are in
 [`docs/AppTesting.md`](docs/AppTesting.md).
 
@@ -485,7 +490,11 @@ Important properties:
 - merge mutates a working copy and commits only at the end;
 - merge reports added, skipped, updated, and conflicting items.
 
-**Nothing in the app calls any of this.** The merge stack is written, tested and unreachable — it was built for multi-device sync that has no transport behind it yet. Worth knowing before reading it as a working feature, and worth keeping, because the hard part of sync is the conflict rules and those are done.
+The app does not call this helper. It is a tested merge of accounts and finalized
+transactions, not a complete sync system. It does not synchronize drafts,
+budgets, import rules, deletions, or permissions. Shared ledgers also need a
+server, authenticated membership, durable retries, and conflict handling across
+all participating records. See the proposed [sharing plan](docs/SharingPlan.md).
 
 ## Persistence
 
@@ -625,21 +634,15 @@ Things we care about:
 
 ## What to work on next
 
-Finish the [reliability plan](docs/AppReliabilityPlan.md) before adding features:
+The [roadmap](docs/Roadmap.md) is the plain-English work order. Finish the
+remaining reliability checks for the personal beta while developing the
+[sharing foundation](docs/SharingPlan.md) separately. Restore/erase consistency
+is complete; the remaining checks include durable Budget Stop completion,
+reminders, physical file selection, and verification of LHV's provisional import
+columns. Keep core and native checks passing for subsequent changes.
 
-1. Make restore/erase use one coherent saved state and give Stop an awaited
-   completion result; test failures and interruption around every write.
-2. Verify the broader reported budget interactions on identified simulator/device
-   builds. The historical Stop exit still has no established cause.
-3. Finish reminder delivery, permission refresh, and both
-   confirmation routes; finish checks of the existing workflows.
-4. Validate the LHV import preset against a clean export. Swedbank and Revolut
-   already have real-file evidence; LHV's current columns are still provisional.
-
-Keep the core and native gates passing for subsequent code changes. CSV decimal
-precision and malformed-fee handling now have regression coverage.
-
-Longer-term and deliberately not started: OCR receipts, bank API integration, learned classification, multi-currency conversion, SQLite.
+[TestFlight preparation](docs/TestFlight.md) distinguishes what the repository
+can verify now from the Apple setup and device checks needed before distribution.
 
 ## Design warning for future work
 
