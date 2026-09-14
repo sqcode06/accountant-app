@@ -134,7 +134,13 @@ final class ImportRulesUITests: XCTestCase {
         XCTAssertTrue(fee.label.contains("0.40"), "Fee was not preserved in review: \(fee.label)")
         XCTAssertTrue(fee.label.contains("Bank fees"))
 
-        waitAndTap(purchaseCategory, description: "Purchase category")
+        // iOS 18 exposes the Menu identifier on an outer Button, with the
+        // actual native button beneath it. Later runtimes can tap the outer
+        // element directly. Keep labels on the named Menu and tap its control.
+        let nativeCategoryButton = purchaseCategory.buttons.firstMatch
+        let categoryControl = purchaseCategory.isHittable || !nativeCategoryButton.exists
+            ? purchaseCategory : nativeCategoryButton
+        waitAndTap(categoryControl, description: "Purchase category")
         waitAndTap(app.buttons["Transport"], description: "Transport category option")
         XCTAssertTrue(waitForLabel(purchaseCategory, containing: "Transport"))
         XCTAssertTrue(fee.label.contains("0.40"), "Recategorising changed the separate fee")
