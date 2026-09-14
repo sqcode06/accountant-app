@@ -10,7 +10,7 @@ For the small set of things that need the owner's attention, use
 restore/erase have automated iOS coverage. An interrupted restore or erase now
 keeps the saved finances together. Budget actions now await saving, and failed
 Stop saves can be retried. Reminder permission changes and competing scheduling
-requests have regression tests. These latest changes are awaiting native CI.
+requests have regression tests. These changes passed native CI on iOS 18.5 and 26.2.
 The old Budget Stop exit no longer reproduces
 on the user's iPhone; we have not established its cause.
 

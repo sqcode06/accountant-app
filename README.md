@@ -68,11 +68,12 @@ Start with [what needs your review](docs/OwnerReview.md) and the short
 - recurring transactions;
 - charts.
 
-**Verified how:** revision `e777dea` passed 339 core tests on each of Linux and
-Windows. Hosted macOS CI passed Release builds, 64 app tests, and six UI tests
+**Verified how:** revision `20319eb` passed 339 core tests on each of Linux and
+Windows. Hosted macOS CI passed Release builds, 81 app tests, and seven UI tests
 on each supported test runtime. Those journeys cover Budget/capture/confirmation
 and import-rule management, CSV preview, review correction, saving, restore,
-erase, and relaunch.
+erase, and relaunch. Budget Stop includes a failed-save Retry journey and
+immediate relaunch; reminder permission and scheduling behavior has app tests.
 Xcode 26.2 also passed an unsigned Release device archive and its packaged
 privacy-manifest check. Signing and TestFlight distribution remain unverified.
 The run links and manual-testing boundaries are in
@@ -641,7 +642,7 @@ The [roadmap](docs/Roadmap.md) is the plain-English work order. Finish the
 remaining reliability checks for the personal beta while developing the
 [sharing foundation](docs/SharingPlan.md) separately. Restore/erase consistency
 is complete. Budget actions now await saving, and reminder scheduling has
-regression coverage; native verification of this update is pending. The remaining
+passing native app tests. The remaining
 device checks include notification delivery, physical file selection, and
 verification of LHV's provisional import columns. Keep core and native checks
 passing for subsequent changes.

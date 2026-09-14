@@ -95,10 +95,15 @@ the full financial snapshot saves. Failed Stop saves remain visible and offer
 Retry without reapplying the action. Real-file tests cover immediate reload and
 failure/retry; the native Budget journey now includes Stop/relaunch, and a new
 journey injects a failed Stop save and uses Retry. Existing background/liveness
-assertions remain. Native verification of these latest changes is pending.
+assertions remain. Revision `20319eb` passed 81 app tests and seven UI tests on
+each runtime in [native CI](https://github.com/sqcode06/accountant-app/actions/runs/34869844950),
+plus both Release builds and an unsigned device archive. The initial identifier
+failure and correction are recorded in [AppTesting.md](AppTesting.md).
 
 Reminder tests now exercise permission changes, late async responses, overlapping
-scheduling and cancellation, time/time-zone changes, and confirmation routes.
+scheduling and cancellation, and time/time-zone changes. Batch, swipe, and detail
+confirmation now share the offer/refresh behavior; the controller tests exercise
+that behavior, while the UI fixtures suppress system permission prompts.
 The Settings switch represents the user's choice even if iOS blocks delivery.
 Actual notification delivery still needs a device check. These are one-shot
 reminders, not recurring daily notifications while the app stays unopened.

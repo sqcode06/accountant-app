@@ -87,7 +87,7 @@ EUR 20 limit, and its accessibility hierarchy showed the overwritten IDs.
 The correction puts identifiers on individual labels and finds the containing
 cell for the swipe. It also keeps the Retry button's identifier separate from
 the warning text. The amount, failure, and relaunch assertions are preserved;
-the corrected code requires a fresh native run.
+the corrected run below passed all of them.
 
 `ReviewReminderControllerTests` uses the actual controller with an injected
 notification service, clock, and calendar. It checks latest-queue replacement,
@@ -99,10 +99,19 @@ system denial is explained separately, so a blocked reminder can still be
 switched off. Confirmation from batch, swipe, and detail routes uses the same
 offer/refresh behavior.
 
-All 81 app-logic tests in 11 suites passed in the portable Linux harness. These
-code changes are awaiting native CI. The harness substitutes only observation
-declarations; it does not compile SwiftUI or UserNotifications.
-The native gate must check those integrations and the UI journeys. Actual
+Revision `20319eb` passed a fresh
+[native run](https://github.com/sqcode06/accountant-app/actions/runs/34869844950):
+Release builds, all 81 app tests, and all seven UI tests on each of iOS 18.5 and
+iOS 26.2, plus the unsigned Release device archive and privacy/identity metadata
+validation on Xcode 26.2. The Stop/Retry and Stop/relaunch screenshots were
+inspected. The same revision passed 333 XCTest and six Swift Testing tests on
+each of Linux and Windows in
+[core CI](https://github.com/sqcode06/accountant-app/actions/runs/34869844949).
+Later documentation-only changes preserve this tested code.
+
+All 81 app-logic tests in 11 suites also passed in the portable Linux harness.
+That harness substitutes only observation declarations; native evidence for
+SwiftUI and UserNotifications comes from the run above. Actual
 notification delivery, Files, and the share sheet remain device checks in
 [What needs your review](OwnerReview.md). Reminders are one-shot, refreshed as
 the app is used; they do not repeat daily indefinitely while it stays unopened.
