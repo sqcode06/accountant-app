@@ -10,6 +10,9 @@ final class AppState: ObservableObject {
     @Published private(set) var isLoading: Bool
     @Published private(set) var classificationRules: [ClassificationRuleConfiguration]
     @Published private(set) var budget: Budget
+    /// True from an accepted edit until a complete snapshot save succeeds. Views
+    /// can distinguish an optimistic change from durable completion or retry.
+    @Published private(set) var hasUnsavedChanges = false
 
     /// Set when a store was found damaged. While this holds, every write is
     /// refused — see `DataProtection`.
@@ -148,6 +151,7 @@ final class AppState: ObservableObject {
         budget = backup.budget
         classificationRules = backup.classificationRules
         pending = PendingWrites()
+        hasUnsavedChanges = false
         persistenceErrorID = nil
         dismissUndo()
         dataProtection = .ok
@@ -178,6 +182,7 @@ final class AppState: ObservableObject {
     /// Marks state dirty and schedules a coalesced write.
     private func scheduleFlush(_ mark: (inout PendingWrites) -> Void) {
         mark(&pending)
+        hasUnsavedChanges = true
 
         flushTask?.cancel()
         flushTask = Task { [weak self] in
@@ -230,6 +235,7 @@ final class AppState: ObservableObject {
             // The unit of retry is the whole snapshot, including changes that
             // arrived while this save was suspended.
             pending = PendingWrites(ledger: true, budget: true, rules: true)
+            hasUnsavedChanges = true
             let error = AppError(error)
             lastError = error
             persistenceErrorID = error.id
@@ -238,6 +244,7 @@ final class AppState: ObservableObject {
 
         if lastError?.id == persistenceErrorID { lastError = nil }
         persistenceErrorID = nil
+        hasUnsavedChanges = !pending.isEmpty
         return true
     }
 
@@ -603,9 +610,10 @@ final class AppState: ObservableObject {
     /// The one for throwing away test data without rebuilding your setup.
     @discardableResult
     func clearAllTransactions() async -> Bool {
-        await mutateAndSave { ledger in
+        guard await mutateAndSave({ ledger in
             ledger.removeAllTransactions()
-        }
+        }) else { return false }
+        return await flushPendingWrites()
     }
 
     /// Removes accounts nothing has ever referenced, and any budget limits that
@@ -711,6 +719,8 @@ final class AppState: ObservableObject {
     }
 
     /// Stops budgeting a category from `period` onward, leaving history intact.
+    /// Success is returned only after saving. A failed save leaves the visible
+    /// change pending so it can be retried without repeating the Stop action.
     @discardableResult
     func removeBudgetTarget(
         for categoryID: AccountID,
@@ -740,7 +750,7 @@ final class AppState: ObservableObject {
         budget = updated
         lastError = nil
         scheduleFlush { $0.budget = true }
-        return true
+        return await flushPendingWrites()
     }
 
     /// Currency used where no account dictates one — dashboard roll-ups, mainly.

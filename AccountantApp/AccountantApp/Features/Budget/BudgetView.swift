@@ -15,6 +15,8 @@ struct BudgetView: View {
 
     @State private var months = BudgetMonthSelection()
     @State private var presentedSheet: BudgetSheet?
+    @State private var isStoppingBudget = false
+    @State private var didFailToStopBudget = false
 
     /// The report and the category list are built once here and passed down.
     ///
@@ -37,6 +39,11 @@ struct BudgetView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
             months.refresh(now: clock.now())
         }
+        .onChange(of: appState.hasUnsavedChanges) { _, hasUnsavedChanges in
+            // A later ordinary write may be the one that gets the queued stop to
+            // disk. Do not leave a failure warning behind once the writer drains.
+            if !hasUnsavedChanges { didFailToStopBudget = false }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -44,6 +51,7 @@ struct BudgetView: View {
                 } label: {
                     Label(categories.isEmpty ? "Add a category" : "Set a limit", systemImage: "plus")
                 }
+                .disabled(isStoppingBudget)
                 .accessibilityIdentifier("budget.setLimit.toolbar")
             }
         }
@@ -76,6 +84,31 @@ struct BudgetView: View {
 
     private func content(_ report: BudgetReport, hasCategories: Bool) -> some View {
         List {
+            if isStoppingBudget {
+                Section {
+                    HStack(spacing: Metrics.Space.s) {
+                        ProgressView()
+                        Text("Saving…")
+                    }
+                    .font(.uiCaption)
+                    .foregroundStyle(Theme.inkMuted)
+                    .accessibilityIdentifier("budget.stop.saving")
+                }
+            } else if didFailToStopBudget && appState.hasUnsavedChanges {
+                Section {
+                    HStack(spacing: Metrics.Space.s) {
+                        Text("The budget change still needs to be saved.")
+                            .font(.uiCaption)
+                            .foregroundStyle(Theme.inkMuted)
+                        Spacer()
+                        Button("Retry", action: retryPendingBudgetSave)
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("budget.stop.retry")
+                    }
+                    .accessibilityIdentifier("budget.stop.unsaved")
+                }
+            }
+
             // Keep navigation visible even when the selected month has no data.
             // Otherwise browsing before the first limit strands the user there.
             Section {
@@ -99,22 +132,21 @@ struct BudgetView: View {
                         BudgetLineRow(line: line)
                             .contentShape(Rectangle())
                             .onTapGesture {
+                                guard !isStoppingBudget else { return }
                                 presentedSheet = .editor(
                                     EditableCategory(account: line.account, period: period)
                                 )
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
-                                    Task {
-                                        await appState.removeBudgetTarget(
-                                            for: line.account.id,
-                                            from: period
-                                        )
-                                    }
+                                    stopBudget(for: line.account.id, in: period)
                                 } label: {
                                     Label("Stop", systemImage: "xmark")
                                 }
+                                .disabled(isStoppingBudget)
+                                .accessibilityIdentifier("budget.line.stop.\(line.account.id.rawValue.uuidString)")
                             }
+                            .accessibilityIdentifier("budget.line.\(line.account.id.rawValue.uuidString)")
                     }
                 }
             }
@@ -123,6 +155,7 @@ struct BudgetView: View {
                 Section {
                     ForEach(report.unbudgeted, id: \.account.id) { line in
                         Button {
+                            guard !isStoppingBudget else { return }
                             presentedSheet = .editor(
                                 EditableCategory(account: line.account, period: period)
                             )
@@ -138,6 +171,8 @@ struct BudgetView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .disabled(isStoppingBudget)
+                        .accessibilityIdentifier("budget.unbudgeted.\(line.account.id.rawValue.uuidString)")
                     }
                 } header: {
                     Text("Not budgeted")
@@ -267,6 +302,7 @@ struct BudgetView: View {
                 .frame(minHeight: 44)
             }
             .buttonStyle(.borderedProminent)
+            .disabled(isStoppingBudget)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("budget.setLimit.empty")
         }
@@ -276,7 +312,34 @@ struct BudgetView: View {
     }
 
     private func beginSettingLimit(hasCategories: Bool) {
+        guard !isStoppingBudget else { return }
         presentedSheet = hasCategories ? .categoryPicker : .newCategory
+    }
+
+    private func stopBudget(for categoryID: AccountID, in selectedPeriod: BudgetPeriod) {
+        guard !isStoppingBudget else { return }
+
+        // Keep the period selected at the tap. The user may browse months while
+        // this awaited write is in flight.
+        isStoppingBudget = true
+        didFailToStopBudget = false
+
+        Task {
+            let saved = await appState.removeBudgetTarget(for: categoryID, from: selectedPeriod)
+            isStoppingBudget = false
+            didFailToStopBudget = !saved && appState.hasUnsavedChanges
+        }
+    }
+
+    private func retryPendingBudgetSave() {
+        guard !isStoppingBudget else { return }
+
+        isStoppingBudget = true
+        Task {
+            let saved = await appState.flushPendingWrites()
+            isStoppingBudget = false
+            if saved { didFailToStopBudget = false }
+        }
     }
 
     // MARK: - Derived

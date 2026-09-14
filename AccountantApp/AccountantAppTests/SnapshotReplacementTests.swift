@@ -116,8 +116,14 @@ struct SnapshotReplacementTests {
         let first = Task { await state.flushPendingWrites() }
         try #require(await repository.waitForSave(1))
         let category = try #require(original.ledger.accounts.values.first)
-        #expect(await state.setBudgetTarget(amount: Money(45, currency: Currency("EUR")),
-            for: category.id, from: BudgetPeriod(year: 2026, month: 9)))
+        let budgetEntered = SnapshotSignal()
+        let budgetSave = Task { @MainActor in
+            budgetEntered.signal()
+            return await state.setBudgetTarget(amount: Money(45, currency: Currency("EUR")),
+                for: category.id, from: BudgetPeriod(year: 2026, month: 9))
+        }
+        await budgetEntered.wait()
+        #expect(state.hasUnsavedChanges)
         let entered = SnapshotSignal()
         let second = Task { @MainActor in
             entered.signal()
@@ -130,6 +136,8 @@ struct SnapshotReplacementTests {
         await repository.release()
         #expect(await first.value)
         #expect(await second.value)
+        #expect(await budgetSave.value)
+        #expect(!state.hasUnsavedChanges)
         let latest = files.store.load()
         #expect(latest.data.ledger == state.ledger)
         #expect(latest.data.budget == state.budget)

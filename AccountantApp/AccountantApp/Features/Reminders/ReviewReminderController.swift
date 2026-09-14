@@ -1,18 +1,47 @@
 import Foundation
-import UserNotifications
 import AccountantCore
+#if canImport(Combine)
+import Combine
+#endif
 
-/// Schedules the evening nudge to review what was captured.
+enum ReviewReminderAuthorizationStatus: Equatable {
+    case notDetermined
+    case denied
+    case authorized
+}
+
+struct ReviewNotificationRequest: Equatable {
+    let title: String
+    let body: String
+    let fireDate: Date
+    let calendar: Calendar
+
+    var triggerDateComponents: DateComponents {
+        var components = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute],
+            from: fireDate
+        )
+        // The numeric year/month/day must be interpreted by the same calendar
+        // that produced them, including its current time zone.
+        components.calendar = calendar
+        components.timeZone = calendar.timeZone
+        return components
+    }
+}
+
+@MainActor
+protocol ReviewNotificationService {
+    func authorizationStatus() async -> ReviewReminderAuthorizationStatus
+    func requestAuthorization() async throws -> Bool
+    func replacePendingRequest(with request: ReviewNotificationRequest?) async throws
+}
+
+/// Schedules one evening nudge for the current review queue.
 ///
-/// The decision of whether to nudge and what to say lives in
-/// `AccountantCore.ReviewReminder`, where it is testable. This is the part that
-/// has to talk to iOS: permission, scheduling, cancelling.
-///
-/// **Scheduled one occurrence at a time, not as a repeating trigger.** A repeating
-/// notification fixes its text when it is scheduled, so it would still be
-/// announcing "3 entries to review" weeks after those three were confirmed. Every
-/// ledger change reschedules the next one instead, which keeps the count honest
-/// and means an empty queue cancels rather than fires.
+/// The pending request is replaced whenever its count or time can have changed.
+/// Replacements are deliberately serialized: if an add is still in flight when
+/// the user disables reminders, its completion is followed by the newer cancel
+/// instead of allowing the stale add to win the race.
 @MainActor
 final class ReviewReminderController: ObservableObject {
 
@@ -23,164 +52,274 @@ final class ReviewReminderController: ObservableObject {
         static let didAsk = "reviewReminderDidAskPermission"
     }
 
-    private static let requestIdentifier = "review-reminder"
-
-    /// Early evening: late enough that the day's spending has happened, early
-    /// enough that a five-minute task does not feel like one more thing before bed.
     private static let defaultHour = 19
     private static let defaultMinute = 30
 
-    @Published private(set) var isEnabled: Bool
+    @Published private(set) var isEnabled = false
     @Published private(set) var hour: Int
     @Published private(set) var minute: Int
+    /// The Settings switch preserves the user's choice even when iOS blocks
+    /// delivery. Foreground permission checks never change this choice.
+    @Published private(set) var wantsReminders: Bool
+    @Published private(set) var authorizationStatus: ReviewReminderAuthorizationStatus = .notDetermined
+    @Published private(set) var didAuthorizationCheckFail = false
+    @Published private(set) var didSchedulingFail = false
 
-    /// Set when iOS has refused us. The toggle stays visible but explains itself
-    /// rather than silently doing nothing.
-    @Published private(set) var isDeniedBySystem = false
+    var isDeniedBySystem: Bool { authorizationStatus == .denied }
+
+    var statusMessage: String? {
+        if isDeniedBySystem {
+            return "Notifications are blocked for Accountant in iOS Settings. Turn them on there, or switch this reminder off."
+        }
+        if didAuthorizationCheckFail {
+            return "Accountant could not request notification permission. Switch this reminder off and on to try again."
+        }
+        if didSchedulingFail {
+            return "Accountant could not schedule the reminder. It will try again when the app becomes active or the review queue changes."
+        }
+        return nil
+    }
 
     private let defaults: UserDefaults
-    private let center: UNUserNotificationCenter
+    private let notificationService: any ReviewNotificationService
+    private let now: () -> Date
+    private let calendar: () -> Calendar
+
+    private var intentRevision = 0
+    private var authorizationReadRevision = 0
+    private var activeEnableRevision: Int?
+    private var latestLedger = Ledger()
+
+    private var desiredRequest: ReviewNotificationRequest?
+    private var replacementRevision = 0
+    private var replacementTask: Task<Void, Never>?
 
     init(
         defaults: UserDefaults = .standard,
-        center: UNUserNotificationCenter = .current()
+        notificationService: any ReviewNotificationService,
+        now: @escaping () -> Date = Date.init,
+        calendar: @escaping () -> Calendar = { .current }
     ) {
         self.defaults = defaults
-        self.center = center
-
-        self.isEnabled = defaults.bool(forKey: Key.isEnabled)
-        // `integer(forKey:)` returns 0 for an unset key, which is a legitimate
-        // hour, so the presence of the key is what distinguishes "midnight" from
-        // "never chosen".
+        self.notificationService = notificationService
+        self.now = now
+        self.calendar = calendar
+        self.wantsReminders = defaults.bool(forKey: Key.isEnabled)
         self.hour = defaults.object(forKey: Key.hour) as? Int ?? Self.defaultHour
         self.minute = defaults.object(forKey: Key.minute) as? Int ?? Self.defaultMinute
     }
 
-    /// The chosen time as a `Date` today, for a `DatePicker` to bind to.
     var reminderTime: Date {
-        Calendar.current.date(
+        calendar().date(
             bySettingHour: hour,
             minute: minute,
             second: 0,
-            of: Date()
-        ) ?? Date()
+            of: now()
+        ) ?? now()
     }
 
-    // MARK: - Permission
-
-    /// Whether now is a sensible moment to ask.
-    ///
-    /// iOS lets an app ask exactly once, so the ask has to be spent well. Asking on
-    /// first launch — before anything is recorded, when the app has demonstrated
-    /// nothing — is how that one chance gets wasted on a "no".
     var shouldOfferReminders: Bool {
         !defaults.bool(forKey: Key.didAsk)
     }
 
-    /// Called once the user has confirmed their first review, when the loop has
-    /// just proved itself and the offer means something.
-    func offerAfterFirstReview() async {
-        guard shouldOfferReminders else { return }
+    /// Spends the one automatic permission offer only after a successful review.
+    /// Marking it asked before suspension also prevents two confirmation routes
+    /// from presenting duplicate prompts.
+    func offerAfterFirstReview(for ledger: Ledger) async {
+        latestLedger = ledger
+
+        guard shouldOfferReminders else {
+            refreshLatestLedger()
+            return
+        }
 
         defaults.set(true, forKey: Key.didAsk)
-
         await enable()
+        refreshLatestLedger()
     }
 
-    /// Turns reminders on, asking for permission if it has not been granted.
+    /// Records user intent, then reconciles it with the current system setting.
     func enable() async {
+        guard activeEnableRevision == nil else { return }
+
+        intentRevision += 1
+        let revision = intentRevision
+        activeEnableRevision = revision
+        authorizationReadRevision += 1
+        defer {
+            if activeEnableRevision == revision {
+                activeEnableRevision = nil
+            }
+        }
         defaults.set(true, forKey: Key.didAsk)
+        wantsReminders = true
+        defaults.set(true, forKey: Key.isEnabled)
+        didAuthorizationCheckFail = false
 
-        do {
-            let granted = try await center.requestAuthorization(options: [.alert, .sound])
+        let currentStatus = await notificationService.authorizationStatus()
+        guard revision == intentRevision,
+              activeEnableRevision == revision,
+              wantsReminders else { return }
+        authorizationStatus = currentStatus
 
-            isDeniedBySystem = !granted
-            isEnabled = granted
-            defaults.set(granted, forKey: Key.isEnabled)
-        } catch {
-            // A failed request is a refusal for our purposes; there is nothing
-            // useful to tell the user beyond the toggle not sticking.
-            isDeniedBySystem = true
+        switch currentStatus {
+        case .authorized:
+            isEnabled = true
+        case .denied:
             isEnabled = false
-            defaults.set(false, forKey: Key.isEnabled)
+            replacePendingRequest(with: nil)
+        case .notDetermined:
+            do {
+                let granted = try await notificationService.requestAuthorization()
+                guard revision == intentRevision,
+                      activeEnableRevision == revision,
+                      wantsReminders else { return }
+                authorizationStatus = granted ? .authorized : .denied
+                isEnabled = granted
+                if !granted { replacePendingRequest(with: nil) }
+            } catch {
+                guard revision == intentRevision,
+                      activeEnableRevision == revision,
+                      wantsReminders else { return }
+                isEnabled = false
+                didAuthorizationCheckFail = true
+                replacePendingRequest(with: nil)
+            }
         }
     }
 
     func disable() {
+        intentRevision += 1
+        authorizationReadRevision += 1
+        activeEnableRevision = nil
+        wantsReminders = false
         isEnabled = false
+        didAuthorizationCheckFail = false
         defaults.set(false, forKey: Key.isEnabled)
-        center.removePendingNotificationRequests(withIdentifiers: [Self.requestIdentifier])
+        replacePendingRequest(with: nil)
     }
 
     func setTime(_ date: Date) {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
-
+        let components = calendar().dateComponents([.hour, .minute], from: date)
         hour = components.hour ?? Self.defaultHour
         minute = components.minute ?? Self.defaultMinute
-
         defaults.set(hour, forKey: Key.hour)
         defaults.set(minute, forKey: Key.minute)
     }
 
-    // MARK: - Scheduling
+    /// Re-reads permission after launch or foregrounding. This never asks for
+    /// permission and never changes the user's persisted on/off choice.
+    func refreshAuthorization(for ledger: Ledger) async {
+        latestLedger = ledger
 
-    /// Rebuilds the pending reminder from current ledger state.
-    ///
-    /// Safe and cheap to call after any change; it always cancels before deciding,
-    /// so there is never more than one pending and never a stale one.
-    func refresh(for ledger: Ledger, now: Date = Date()) {
-        center.removePendingNotificationRequests(withIdentifiers: [Self.requestIdentifier])
+        // A scene becoming active is routine and must not cancel the explicit
+        // request that caused the system permission sheet to appear.
+        guard activeEnableRevision == nil else { return }
 
-        guard isEnabled else { return }
+        authorizationReadRevision += 1
+        let revision = authorizationReadRevision
+        let refreshedStatus = await notificationService.authorizationStatus()
+        guard revision == authorizationReadRevision,
+              activeEnableRevision == nil else { return }
+        authorizationStatus = refreshedStatus
 
-        guard case let .remind(reminder) = ReviewReminder.decide(for: ledger, now: now) else {
+        switch authorizationStatus {
+        case .authorized:
+            didAuthorizationCheckFail = false
+            isEnabled = wantsReminders
+        case .denied:
+            didAuthorizationCheckFail = false
+            isEnabled = false
+        case .notDetermined:
+            isEnabled = false
+        }
+
+        refreshLatestLedger()
+    }
+
+    /// Rebuilds the sole pending reminder from the latest ledger, time, calendar,
+    /// and time zone. Safe to call after any relevant state or lifecycle change.
+    func refresh(for ledger: Ledger, now suppliedNow: Date? = nil) {
+        latestLedger = ledger
+        refreshLatestLedger(now: suppliedNow)
+    }
+
+    private func refreshLatestLedger(now suppliedNow: Date? = nil) {
+        guard isEnabled else {
+            replacePendingRequest(with: nil)
             return
         }
 
-        guard let fireDate = nextFireDate(after: now) else { return }
+        let currentDate = suppliedNow ?? now()
+        let currentCalendar = calendar()
 
-        let content = UNMutableNotificationContent()
-        content.title = reminder.title
-        content.body = reminder.body
-        content.sound = .default
+        guard case let .remind(reminder) = ReviewReminder.decide(
+            for: latestLedger,
+            now: currentDate,
+            calendar: currentCalendar
+        ), let fireDate = nextFireDate(after: currentDate, calendar: currentCalendar) else {
+            replacePendingRequest(with: nil)
+            return
+        }
 
-        let trigger = UNCalendarNotificationTrigger(
-            dateMatching: Calendar.current.dateComponents(
-                [.year, .month, .day, .hour, .minute],
-                from: fireDate
-            ),
-            repeats: false
-        )
-
-        center.add(
-            UNNotificationRequest(
-                identifier: Self.requestIdentifier,
-                content: content,
-                trigger: trigger
+        replacePendingRequest(
+            with: ReviewNotificationRequest(
+                title: reminder.title,
+                body: reminder.body,
+                fireDate: fireDate,
+                calendar: currentCalendar
             )
         )
     }
 
-    /// The next time the reminder should fire.
-    ///
-    /// If today's slot has passed, this is tomorrow — reviewing at 21:00 should not
-    /// summon a notification for 19:30 the same evening.
-    private func nextFireDate(after now: Date) -> Date? {
-        let calendar = Calendar.current
-
-        guard let today = calendar.date(
-            bySettingHour: hour,
-            minute: minute,
-            second: 0,
-            of: now
-        ) else {
-            return nil
+    /// Test synchronization point for the serialized replacement loop.
+    func waitForPendingUpdates() async {
+        while let task = replacementTask {
+            await task.value
         }
+    }
 
-        if today > now {
-            return today
+    private func nextFireDate(after date: Date, calendar: Calendar) -> Date? {
+        calendar.nextDate(
+            after: date,
+            matching: DateComponents(hour: hour, minute: minute),
+            matchingPolicy: .nextTime,
+            repeatedTimePolicy: .first,
+            direction: .forward
+        )
+    }
+
+    private func replacePendingRequest(with request: ReviewNotificationRequest?) {
+        desiredRequest = request
+        replacementRevision += 1
+
+        guard replacementTask == nil else { return }
+
+        replacementTask = Task { [weak self] in
+            await self?.runReplacementLoop()
         }
+    }
 
-        return calendar.date(byAdding: .day, value: 1, to: today)
+    private func runReplacementLoop() async {
+        while true {
+            let revision = replacementRevision
+            let request = desiredRequest
+
+            do {
+                try await notificationService.replacePendingRequest(with: request)
+                if revision == replacementRevision {
+                    didSchedulingFail = false
+                }
+            } catch {
+                if revision == replacementRevision {
+                    didSchedulingFail = true
+                }
+            }
+
+            guard revision != replacementRevision else {
+                replacementTask = nil
+                return
+            }
+        }
     }
 }

@@ -13,7 +13,11 @@ final class AccountantAppUITests: XCTestCase {
         let ledgerSeed = name.contains("testBudgetWithoutActiveExpenseCreatesCategoryAndLimit")
             ? "no-active-expense"
             : nil
-        configureLaunch(reset: true, ledgerSeed: ledgerSeed)
+        configureLaunch(
+            reset: true,
+            ledgerSeed: ledgerSeed,
+            failFirstBudgetStop: name.contains("testBudgetStopRetriesAfterSaveFailure")
+        )
         app.launch()
 
         addTeardownBlock { [weak self] in
@@ -87,8 +91,8 @@ final class AccountantAppUITests: XCTestCase {
         assertBudgetLine(remaining: "19.90", spent: "0.10")
         attachScreenshot(named: "EUR 0.10 confirmed without double counting")
 
-        // Let the ordinary debounced write settle, then exercise a background /
-        // foreground transition before a real process termination and relaunch.
+        // Preserve the lifecycle regression: an ordinary debounced write must
+        // survive a background/foreground transition and the first relaunch.
         Thread.sleep(forTimeInterval: 1)
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(app.waitUntilBackgrounded(), "App did not enter the background")
@@ -101,10 +105,54 @@ final class AccountantAppUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["Budget"].waitForExistence(timeout: 10))
         app.tabBars.buttons["Budget"].tap()
-
         assertSeptemberIsVisible()
         assertBudgetLine(remaining: "19.90", spent: "0.10")
-        attachScreenshot(named: "Confirmed budget after relaunch")
+        attachScreenshot(named: "Confirmed budget after lifecycle relaunch")
+
+        // Stop is an awaited durable action. The category's retained spending is
+        // deliberately shown as unbudgeted, so it cannot be mistaken for an
+        // active limit after the row disappears.
+        let budgetLine = app.otherElements[
+            "budget.line.00000000-0000-0000-0000-000000000201"
+        ]
+        XCTAssertTrue(budgetLine.waitForExistence(timeout: 5))
+        budgetLine.swipeLeft()
+        let stop = app.buttons[
+            "budget.line.stop.00000000-0000-0000-0000-000000000201"
+        ]
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
+        stop.tap()
+
+        let noLimits = app.staticTexts["No limits set for this month."]
+        XCTAssertTrue(noLimits.waitForExistence(timeout: 5))
+        let unbudgeted = app.buttons[
+            "budget.unbudgeted.00000000-0000-0000-0000-000000000201"
+        ]
+        XCTAssertTrue(unbudgeted.waitForExistence(timeout: 5))
+        waitUntilEnabled(unbudgeted, message: "Stop should finish before termination")
+        XCTAssertFalse(app.otherElements["budget.stop.unsaved"].exists)
+        XCTAssertFalse(app.buttons["budget.stop.retry"].exists)
+        XCTAssertTrue(unbudgeted.label.contains("Eating out"))
+        XCTAssertTrue(unbudgeted.label.contains("0.10"))
+        attachScreenshot(named: "Stopped September limit with retained spending")
+
+        // Terminate immediately after the observable durable completion. Do not
+        // rely on debounce timing or a background-triggered write here.
+        app.terminate()
+
+        configureLaunch(reset: false)
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Budget"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Budget"].tap()
+
+        assertSeptemberIsVisible()
+        XCTAssertTrue(app.staticTexts["No limits set for this month."].waitForExistence(timeout: 5))
+        let persistedUnbudgeted = app.buttons[
+            "budget.unbudgeted.00000000-0000-0000-0000-000000000201"
+        ]
+        XCTAssertTrue(persistedUnbudgeted.waitForExistence(timeout: 5))
+        XCTAssertTrue(persistedUnbudgeted.label.contains("0.10"))
+        attachScreenshot(named: "Stopped budget after relaunch")
     }
 
     @MainActor
@@ -165,7 +213,83 @@ final class AccountantAppUITests: XCTestCase {
         attachScreenshot(named: "Budget after creating category and EUR 20 limit")
     }
 
-    private func configureLaunch(reset: Bool, ledgerSeed: String? = nil) {
+    @MainActor
+    func testBudgetStopRetriesAfterSaveFailure() throws {
+        let budgetTab = app.tabBars.buttons["Budget"]
+        XCTAssertTrue(budgetTab.waitForExistence(timeout: 10))
+        budgetTab.tap()
+        assertSeptemberIsVisible()
+
+        let initialSetLimit = app.buttons["budget.setLimit.empty"]
+        XCTAssertTrue(initialSetLimit.waitForExistence(timeout: 5))
+        initialSetLimit.tap()
+        let eatingOut = app.buttons[
+            "budget.category.00000000-0000-0000-0000-000000000201"
+        ]
+        XCTAssertTrue(eatingOut.waitForExistence(timeout: 5))
+        eatingOut.tap()
+        XCTAssertTrue(app.navigationBars["Set a limit"].waitForExistence(timeout: 5))
+        tapAmountDigits([2, 0, 0, 0])
+        app.buttons["budget.limit.save"].tap()
+        assertBudgetLine(remaining: "20.00", spent: "0.00")
+
+        let budgetLine = app.otherElements[
+            "budget.line.00000000-0000-0000-0000-000000000201"
+        ]
+        XCTAssertTrue(budgetLine.waitForExistence(timeout: 5))
+        budgetLine.swipeLeft()
+        let stop = app.buttons[
+            "budget.line.stop.00000000-0000-0000-0000-000000000201"
+        ]
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
+        stop.tap()
+
+        let saveFailure = app.alerts["Couldn't save"]
+        XCTAssertTrue(saveFailure.waitForExistence(timeout: 5))
+        XCTAssertTrue(saveFailure.buttons["OK"].waitForExistence(timeout: 5))
+        saveFailure.buttons["OK"].tap()
+
+        // The target disappearing is optimistic. The retry state is the visible
+        // proof that Stop did not report durability after the injected failure.
+        let retry = app.buttons["budget.stop.retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["budget.stop.unsaved"].exists)
+        attachScreenshot(named: "Budget stop pending retry after save failure")
+        retry.tap()
+
+        let setLimit = app.buttons["budget.setLimit.empty"]
+        XCTAssertTrue(setLimit.waitForExistence(timeout: 5))
+        waitUntilEnabled(setLimit, message: "Retry should finish before termination")
+        XCTAssertFalse(app.otherElements["budget.stop.unsaved"].exists)
+        XCTAssertFalse(app.buttons["budget.stop.retry"].exists)
+
+        // The retry completed a real JSON save. Terminate immediately instead of
+        // allowing a later background path to mask a durability regression.
+        app.terminate()
+        configureLaunch(reset: false, failFirstBudgetStop: true)
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Budget"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Budget"].tap()
+        assertSeptemberIsVisible()
+        XCTAssertTrue(app.staticTexts["No limits set for this month."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["budget.setLimit.empty"].isEnabled)
+    }
+
+    @MainActor
+    private func waitUntilEnabled(_ element: XCUIElement, message: String,
+                                  file: StaticString = #filePath, line: UInt = #line) {
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == true"), object: element
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 10), .completed,
+                       message, file: file, line: line)
+    }
+
+    private func configureLaunch(
+        reset: Bool,
+        ledgerSeed: String? = nil,
+        failFirstBudgetStop: Bool = false
+    ) {
         app.launchArguments = ["--accountant-ui-testing"]
         if reset { app.launchArguments.append("--accountant-ui-testing-reset") }
         var environment: [String: String] = [
@@ -177,6 +301,9 @@ final class AccountantAppUITests: XCTestCase {
         ]
         if let ledgerSeed {
             environment["ACCOUNTANT_UI_TEST_LEDGER_SEED"] = ledgerSeed
+        }
+        if failFirstBudgetStop {
+            environment["ACCOUNTANT_UI_TEST_FAIL_FIRST_BUDGET_STOP"] = "1"
         }
         app.launchEnvironment = environment
     }

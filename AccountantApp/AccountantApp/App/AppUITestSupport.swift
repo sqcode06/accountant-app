@@ -14,9 +14,10 @@ struct AppUITestFixture {
     static let runIDVariable = "ACCOUNTANT_UI_TEST_RUN_ID"
     static let nowVariable = "ACCOUNTANT_UI_TEST_NOW"
     static let ledgerSeedVariable = "ACCOUNTANT_UI_TEST_LEDGER_SEED"
+    static let failFirstBudgetStopVariable = "ACCOUNTANT_UI_TEST_FAIL_FIRST_BUDGET_STOP"
     static let importRulesSeed = "import-rules"
 
-    let dataRepository: LocalJSONAppDataRepository
+    let dataRepository: any AppDataRepository
     let defaults: UserDefaults
     let clock: AppClock
 
@@ -81,8 +82,13 @@ struct AppUITestFixture {
                 .flatMap(ISO8601DateFormatter().date(from:))
                 ?? Date(timeIntervalSince1970: 1_789_300_800) // 2026-09-13 12:00 UTC
 
+            let repository = LocalJSONAppDataRepository(directory: fixtureDirectory)
+            let dataRepository: any AppDataRepository = environment[failFirstBudgetStopVariable] == "1"
+                ? FailFirstCurrentBudgetStopRepository(base: repository)
+                : repository
+
             return AppUITestFixture(
-                dataRepository: LocalJSONAppDataRepository(directory: fixtureDirectory),
+                dataRepository: dataRepository,
                 defaults: defaults,
                 clock: .fixed(fixedDate)
             )
@@ -298,5 +304,54 @@ struct AppUITestFixture {
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
         try FileManager.default.removeItem(at: directory)
     }
+}
+
+/// Debug-only fault injection for the Stop retry journey. It rejects just one
+/// normal snapshot save after a current-month target disappears, then delegates
+/// every later save to the fixture's real JSON repository.
+private actor FailFirstCurrentBudgetStopRepository: AppDataRepository {
+    private let base: LocalJSONAppDataRepository
+    private var lastSavedBudget = Budget()
+    private var didFail = false
+    private let currentPeriod = BudgetPeriod(year: 2026, month: 9)
+
+    init(base: LocalJSONAppDataRepository) {
+        self.base = base
+    }
+
+    func load() async -> AppDataLoadResult {
+        let result = await base.load()
+        lastSavedBudget = result.data.budget
+        return result
+    }
+
+    func save(_ data: LedgerBackup) async throws {
+        if !didFail && removesCurrentTarget(from: lastSavedBudget, in: data.budget) {
+            didFail = true
+            throw SyntheticBudgetStopSaveError()
+        }
+
+        try await base.save(data)
+        lastSavedBudget = data.budget
+    }
+
+    func replaceForRecovery(_ data: LedgerBackup) async throws {
+        try await base.replaceForRecovery(data)
+        lastSavedBudget = data.budget
+    }
+
+    func completeRecovery() async throws {
+        try await base.completeRecovery()
+    }
+
+    private func removesCurrentTarget(from previous: Budget, in submitted: Budget) -> Bool {
+        previous.targets(in: currentPeriod).contains { previousTarget in
+            submitted.target(for: previousTarget.accountID, in: currentPeriod) == nil
+        }
+    }
+}
+
+private struct SyntheticBudgetStopSaveError: LocalizedError {
+    var errorDescription: String? { "Synthetic UI-test budget save failure." }
 }
 #endif

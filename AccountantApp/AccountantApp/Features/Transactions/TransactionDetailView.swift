@@ -9,6 +9,7 @@ import AccountantCore
 /// `deleteDraftTransaction` — existed from the start with nothing calling them.
 struct TransactionDetailView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var reminders: ReviewReminderController
     @Environment(\.dismiss) private var dismiss
 
     let transactionID: TransactionID
@@ -58,6 +59,7 @@ struct TransactionDetailView: View {
                     Button {
                         Task {
                             if await appState.confirmTransactions(ids: [transaction.id]) {
+                                await reminders.offerAfterFirstReview(for: appState.ledger)
                                 dismiss()
                             }
                         }

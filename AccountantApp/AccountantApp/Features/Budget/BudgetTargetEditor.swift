@@ -41,6 +41,7 @@ struct BudgetTargetEditor: View {
 
                 AmountKeypad(entry: $entry)
                     .padding(.horizontal, Metrics.Space.l)
+                    .disabled(isSaving)
 
                 saveButton
                     .padding(Metrics.Space.l)
@@ -51,9 +52,11 @@ struct BudgetTargetEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
                 }
             }
             .appErrorAlert()
+            .interactiveDismissDisabled(isSaving)
             .onAppear(perform: seedFromCurrentAmount)
         }
         .presentationDetents([.large])

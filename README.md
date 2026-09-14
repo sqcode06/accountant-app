@@ -43,7 +43,8 @@ Stop exit is no longer reproducible by the user; its cause is still unconfirmed.
 
 The first TestFlight beta will be the personal app. Optional sign-in and sharing
 will be developed separately; Apple enrollment and publication are deferred.
-Start with the short [roadmap](docs/Roadmap.md), or open the detailed
+Start with [what needs your review](docs/OwnerReview.md) and the short
+[roadmap](docs/Roadmap.md), or open the detailed
 [reliability evidence](docs/AppReliabilityPlan.md).
 
 **Implemented workflows (verification is still in progress):**
@@ -58,7 +59,7 @@ Start with the short [roadmap](docs/Roadmap.md), or open the detailed
 - six themes and matching alternate app icons;
 - an onboarding guide, a danger zone, and per-account currency;
 - CSV export and a complete backup that can be restored;
-- a daily review reminder, scheduled only when something is actually waiting.
+- a review reminder: one notification for the pending queue, refreshed as you use the app.
 
 **Not there yet:**
 
@@ -639,9 +640,11 @@ Things we care about:
 The [roadmap](docs/Roadmap.md) is the plain-English work order. Finish the
 remaining reliability checks for the personal beta while developing the
 [sharing foundation](docs/SharingPlan.md) separately. Restore/erase consistency
-is complete; the remaining checks include durable Budget Stop completion,
-reminders, physical file selection, and verification of LHV's provisional import
-columns. Keep core and native checks passing for subsequent changes.
+is complete. Budget actions now await saving, and reminder scheduling has
+regression coverage; native verification of this update is pending. The remaining
+device checks include notification delivery, physical file selection, and
+verification of LHV's provisional import columns. Keep core and native checks
+passing for subsequent changes.
 
 [TestFlight preparation](docs/TestFlight.md) distinguishes what the repository
 can verify now from the Apple setup and device checks needed before distribution.

@@ -3,16 +3,20 @@
 Updated 2026-09-14. The first beta is the personal app. We can develop sharing
 alongside it; Apple enrollment and TestFlight publication can wait.
 
+For the small set of things that need the owner's attention, use
+[What needs your review](OwnerReview.md). Engineering work continues alongside it.
+
 **Now: make the existing app dependable.** Budget navigation, import rules, and
 restore/erase have automated iOS coverage. An interrupted restore or erase now
-keeps the saved finances together. The old Budget Stop exit no longer reproduces
+keeps the saved finances together. Budget actions now await saving, and failed
+Stop saves can be retried. Reminder permission changes and competing scheduling
+requests have regression tests. These latest changes are awaiting native CI.
+The old Budget Stop exit no longer reproduces
 on the user's iPhone; we have not established its cause.
 
 Before the personal beta, finish these checks:
 
-- Make a successful Budget Stop mean its change has actually been saved.
-- Check reminders after permissions change and after both ways of confirming
-  pending transactions.
+- Confirm actual reminder delivery and the permission explanation on an iPhone.
 - Exercise import, backup export, and restore through the real iPhone file
   picker and share sheet; the automated fixtures bypass file selection.
 - Verify LHV's import columns against a real export, then finish the remaining

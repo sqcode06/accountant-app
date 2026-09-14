@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import AccountantCore
 
 /// Four tabs, down from five.
@@ -16,6 +17,7 @@ struct ContentView: View {
     @EnvironmentObject private var onboarding: OnboardingController
     @EnvironmentObject private var reminders: ReviewReminderController
     @Environment(\.appClock) private var clock
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var isPresentingCapture = false
     @State private var isPresentingOnboarding = false
@@ -81,12 +83,31 @@ struct ContentView: View {
         // finishing work had a chance to run.
         .task {
             isPresentingOnboarding = onboarding.shouldPresent
+            await reminders.refreshAuthorization(for: appState.ledger)
+        }
+        // The reminder also names the oldest draft's age. Watching the drafts
+        // catches restores that replace a queue with the same number of entries.
+        .onChange(of: appState.draftTransactions) { _, _ in
             reminders.refresh(for: appState.ledger, now: clock.now())
         }
-        // The reminder names how many entries are waiting, so it is rebuilt
-        // whenever that number moves. Watching the count rather than the ledger
-        // keeps this off the path of edits that cannot change what it would say.
-        .onChange(of: appState.draftCount) { _, _ in
+        // Permission, clock, time zone, and the pending one-shot request may all
+        // have changed while the app was away. Reconcile them on every return.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                await reminders.refreshAuthorization(for: appState.ledger)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.significantTimeChangeNotification
+        )) { _ in
+            guard scenePhase == .active else { return }
+            reminders.refresh(for: appState.ledger, now: clock.now())
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSNotification.Name.NSSystemTimeZoneDidChange
+        )) { _ in
+            guard scenePhase == .active else { return }
             reminders.refresh(for: appState.ledger, now: clock.now())
         }
         .appErrorAlert()

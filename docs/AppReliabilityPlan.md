@@ -90,8 +90,20 @@ unchanged Budget check, but the timeout's cause remains unconfirmed.
 A recurrence needs raw process-state and simulator diagnostics; it must not be
 hidden by accepting an unknown or terminated state.
 
-Next is the Budget Stop save contract and remaining reported budget workflows.
-Stop still has a debounced write window. The previously reported exit is no
+Budget set/Stop/clear and Clear all transactions now return success only after
+the full financial snapshot saves. Failed Stop saves remain visible and offer
+Retry without reapplying the action. Real-file tests cover immediate reload and
+failure/retry; the native Budget journey now includes Stop/relaunch, and a new
+journey injects a failed Stop save and uses Retry. Existing background/liveness
+assertions remain. Native verification of these latest changes is pending.
+
+Reminder tests now exercise permission changes, late async responses, overlapping
+scheduling and cancellation, time/time-zone changes, and confirmation routes.
+The Settings switch represents the user's choice even if iOS blocks delivery.
+Actual notification delivery still needs a device check. These are one-shot
+reminders, not recurring daily notifications while the app stays unopened.
+
+The previously reported exit is no
 longer reproducible by the user, so it is retained as an unresolved historical
 report rather than a confirmed current crash. The lifecycle-test timeout above
 is a separate observation.
@@ -167,11 +179,11 @@ a List row and overlapping picker/editor sheet transitions. Native tap and
 repeated-presentation tests must establish their effects before claiming either
 as the reported cause.
 
-Stop currently changes memory and schedules a write after a 400 ms debounce.
+At the reviewed baseline, Stop changed memory and scheduled a write after a 400 ms debounce.
 A real-file experiment stopped a target and immediately exited; a new process
 loaded the old target. That establishes a persistence window, not a crash.
 The product must distinguish an accepted change from durable completion.
-For Stop and destructive actions, the proposed contract is that successful
+For Stop and destructive actions, the repair contract is that successful
 completion is acknowledged only after saving, with a visible retryable failure
 otherwise. Ordinary edits may remain responsive and debounced, provided their
 pending/failure state and eventual completion are tested. Native background

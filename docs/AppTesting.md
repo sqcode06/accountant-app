@@ -61,6 +61,41 @@ needed. It requires the category menu to open and the intended purchase to
 change category while retaining its separate fee. Screenshots capture the open
 menu and corrected review. Physical-device file selection remains a manual check.
 
+## Budget saves and reminders — 2026-09-14
+
+Budget set, Stop, and clear, plus Clear all transactions, now await the complete
+snapshot save before returning success. A failed write keeps the accepted
+change pending. Stop shows a saving state and then a Retry action if needed;
+Retry saves the current snapshot without repeating the original Stop.
+
+`BudgetDurabilityTests` reloads real JSON immediately after acknowledged saves.
+It covers new and inherited limits, with and without spending, preserves other
+categories and earlier history, and injects failures for set/Stop/clear and
+transaction clearing. The older-writer barrier test now also waits for the
+budget operation's result. The native Budget journey retains its existing
+background/liveness assertions, then stops the limit and immediately relaunches.
+A second journey injects a failed Stop save, checks the error and Retry button,
+retries, and relaunches. The fault repository is Debug-only and confined to the
+isolated UI-test directory.
+
+`ReviewReminderControllerTests` uses the actual controller with an injected
+notification service, clock, and calendar. It checks latest-queue replacement,
+empty-queue cancellation, disable winning over an in-flight add or permission
+reply, foreground permission changes, visible failures and retry, simultaneous
+permission offers, and time/time-zone handling. Controlled barriers establish
+the relevant async ordering. The Settings switch shows the persisted choice;
+system denial is explained separately, so a blocked reminder can still be
+switched off. Confirmation from batch, swipe, and detail routes uses the same
+offer/refresh behavior.
+
+All 81 app-logic tests in 11 suites passed in the portable Linux harness. These
+code changes are awaiting native CI. The harness substitutes only observation
+declarations; it does not compile SwiftUI or UserNotifications.
+The native gate must check those integrations and the UI journeys. Actual
+notification delivery, Files, and the share sheet remain device checks in
+[What needs your review](OwnerReview.md). Reminders are one-shot, refreshed as
+the app is used; they do not repeat daily indefinitely while it stays unopened.
+
 ## Restore and erase stabilization — 2026-09-14
 
 REL-04 now saves a single validated financial snapshot. The local Linux run
@@ -127,7 +162,11 @@ production persistence path. Preview repositories also use the unified API.
 
 **Note the contract here changed.** Writes used to save first and commit to `AppState` afterwards, so a failed save left the visible ledger untouched. That ordering put a suspension point between reading the ledger and writing it back, which meant two quick actions could each save over the other and one change was silently lost.
 
-Mutations now commit synchronously on the main actor and the write is debounced behind them. A failed write keeps the change visible, keeps it marked dirty so the next flush retries it, and reports the error. Reverting the change would not have saved the data either — it would only have hidden that nothing was saved, and invited the user to repeat the action into the same failure.
+Mutations now commit synchronously on the main actor. Ordinary edits debounce
+the write; budget actions, import rules, and destructive actions await saving
+before acknowledging success. A failed write keeps the change visible and
+marked dirty so the next flush retries it, and reports the error. Reverting the
+change would only hide the fact that nothing was saved.
 
 Two consequences for tests:
 

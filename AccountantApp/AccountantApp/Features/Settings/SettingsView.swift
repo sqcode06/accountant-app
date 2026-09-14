@@ -11,6 +11,7 @@ struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var onboarding: OnboardingController
     @EnvironmentObject private var reminders: ReviewReminderController
+    @Environment(\.appClock) private var clock
 
     @State private var isPresentingImport = false
     @State private var isPresentingOnboarding = false
@@ -57,13 +58,13 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Daily review reminder", isOn: Binding(
-                    get: { reminders.isEnabled },
+                Toggle("Review reminder", isOn: Binding(
+                    get: { reminders.wantsReminders },
                     set: { wantsReminders in
                         if wantsReminders {
                             Task {
                                 await reminders.enable()
-                                reminders.refresh(for: appState.ledger)
+                                reminders.refresh(for: appState.ledger, now: clock.now())
                             }
                         } else {
                             reminders.disable()
@@ -72,14 +73,14 @@ struct SettingsView: View {
                 ))
                 .tint(Theme.accent)
 
-                if reminders.isEnabled {
+                if reminders.wantsReminders {
                     DatePicker(
                         "Remind me at",
                         selection: Binding(
                             get: { reminders.reminderTime },
                             set: { newTime in
                                 reminders.setTime(newTime)
-                                reminders.refresh(for: appState.ledger)
+                                reminders.refresh(for: appState.ledger, now: clock.now())
                             }
                         ),
                         displayedComponents: .hourAndMinute
@@ -89,10 +90,12 @@ struct SettingsView: View {
             } header: {
                 Text("Reminders")
             } footer: {
-                if reminders.isDeniedBySystem {
-                    Text("Notifications are turned off for Accountant in iOS Settings. Turn them on there to use reminders.")
-                } else {
-                    Text("A nudge at the end of the day, only when something is actually waiting to be reviewed.")
+                VStack(alignment: .leading, spacing: Metrics.Space.xs) {
+                    Text("Schedules one reminder for the next review time when entries are waiting. It is refreshed when you use the app.")
+
+                    if let statusMessage = reminders.statusMessage {
+                        Text(statusMessage)
+                    }
                 }
             }
 

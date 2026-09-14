@@ -23,7 +23,12 @@ struct AccountantAppApp: App {
             _themeManager = StateObject(wrappedValue: ThemeManager(defaults: fixture.defaults))
             _onboarding = StateObject(wrappedValue: OnboardingController(defaults: fixture.defaults))
             _iconManager = StateObject(wrappedValue: AppIconManager())
-            _reminders = StateObject(wrappedValue: ReviewReminderController(defaults: fixture.defaults))
+            _reminders = StateObject(
+                wrappedValue: ReviewReminderController(
+                    defaults: fixture.defaults,
+                    now: { fixture.clock.now() }
+                )
+            )
             clock = fixture.clock
             return
         }

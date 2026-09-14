@@ -72,7 +72,7 @@ struct ReviewView: View {
                     }
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button {
-                            Task { await appState.confirmTransactions(ids: [transaction.id]) }
+                            confirm(transaction)
                         } label: {
                             Label("Confirm", systemImage: "checkmark")
                         }
@@ -169,8 +169,16 @@ struct ReviewView: View {
                 // allows: the review loop has just worked, so an offer to remind
                 // them next time means something. Asking on first launch, before
                 // the app has recorded anything, spends that one chance on a no.
-                await reminders.offerAfterFirstReview()
+                await reminders.offerAfterFirstReview(for: appState.ledger)
             }
+        }
+    }
+
+    private func confirm(_ transaction: AccountantCore.Transaction) {
+        Task {
+            guard await appState.confirmTransactions(ids: [transaction.id]) else { return }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            await reminders.offerAfterFirstReview(for: appState.ledger)
         }
     }
 
