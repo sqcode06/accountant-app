@@ -98,13 +98,15 @@ final class ReconciliationUITests: XCTestCase {
         // A statement that no longer matches, with nothing left to tick, must
         // say so rather than imply everything was checked.
         setStatement("80")
-        XCTAssertTrue(anyElement("reconcile.uncheckedMismatch").waitForExistence(timeout: 5),
+        let mismatchMessage = anyElement("reconcile.uncheckedMismatch")
+        XCTAssertTrue(mismatchMessage.waitForExistence(timeout: 5),
                       "Empty-mismatch copy did not appear for a mismatched statement with nothing left to tick")
-        XCTAssertTrue(
-            app.staticTexts[
-                "No entries with an outstanding amount are listed for this date. "
-                + "Check the statement balance and date, and look for missing or incorrect entries."
-            ].waitForExistence(timeout: 5),
+        // XCTest's string-subscript lookup rejects identifiers over 128 chars.
+        // Find the stable ID, then compare its full label without truncating it.
+        XCTAssertEqual(
+            mismatchMessage.label,
+            "No entries with an outstanding amount are listed for this date. "
+                + "Check the statement balance and date, and look for missing or incorrect entries.",
             "Unexpected empty-mismatch wording"
         )
         XCTAssertFalse(anyElement("reconcile.reconciledBadge").exists, "Reconciled badge shown despite a €5 mismatch")
