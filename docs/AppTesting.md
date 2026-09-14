@@ -75,12 +75,20 @@ The successful final run includes the Budget background/relaunch check that
 timed out once during validation, as described below. Later documentation-only
 commits preserve this tested code.
 
-Distribution preparation now adds a separate unsigned Release device archive
-check to the Xcode 26.2 CI job. It reads the built app's privacy manifest and
-identity from the archive, records their values, and rejects incorrect packaging.
-This check needs its own macOS result; the earlier run above predates it. Signed
-archive validation, upload, and physical-device checks remain separate steps in
-[TestFlight preparation](TestFlight.md).
+Distribution preparation at revision `e777dea` passed a fresh
+[native run](https://github.com/sqcode06/accountant-app/actions/runs/34858251856):
+Release simulator builds, 64 app tests, and six UI tests on each runtime, plus
+an unsigned Release device archive on Xcode 26.2. The archive validator read the
+packaged privacy manifest and app identity, confirming app-only UserDefaults
+access (`CA92.1`), no tracking or collected data, bundle ID
+`dev.sqcode.AccountantApp`, version `1.0`, build `1`, iPhoneOS, and iPhone/iPad
+device families. The metadata report and archive log are in that run's
+`xcode26.2-ios26.2` diagnostics artifact. The same revision passed all 339 core
+tests on each of Linux and Windows in
+[core CI](https://github.com/sqcode06/accountant-app/actions/runs/34858252541).
+Signed archive validation, upload, and physical-device checks remain separate
+steps in [TestFlight preparation](TestFlight.md). Later documentation-only
+commits preserve this tested code and packaging.
 
 The new UI journey decodes a backup, checks the replacement counts, confirms
 restore, and verifies both a finalized transaction and a draft awaiting review.

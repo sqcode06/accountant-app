@@ -23,6 +23,11 @@ Sign-in and sharing are separate development work.
 Current test evidence and its limits are in [AppTesting.md](AppTesting.md).
 The remaining product checks are in the [roadmap](Roadmap.md).
 
+Verified at `e777dea`: the unsigned device archive and packaged-manifest check
+passed, along with both Release simulator builds and all 64 app/six UI tests on
+each runtime in [native CI](https://github.com/sqcode06/accountant-app/actions/runs/34858251856).
+This is preparation evidence, not a signed or distributed beta.
+
 **When ready to distribute**
 
 1. Enroll in the Apple Developer Program. Confirm the bundle ID and create the

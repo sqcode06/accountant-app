@@ -67,11 +67,13 @@ Start with the short [roadmap](docs/Roadmap.md), or open the detailed
 - recurring transactions;
 - charts.
 
-**Verified how:** code revision `ad7f40e` passed 339 core tests on each of Linux and
+**Verified how:** revision `e777dea` passed 339 core tests on each of Linux and
 Windows. Hosted macOS CI passed Release builds, 64 app tests, and six UI tests
 on each supported test runtime. Those journeys cover Budget/capture/confirmation
 and import-rule management, CSV preview, review correction, saving, restore,
 erase, and relaunch.
+Xcode 26.2 also passed an unsigned Release device archive and its packaged
+privacy-manifest check. Signing and TestFlight distribution remain unverified.
 The run links and manual-testing boundaries are in
 [`docs/AppTesting.md`](docs/AppTesting.md).
 
