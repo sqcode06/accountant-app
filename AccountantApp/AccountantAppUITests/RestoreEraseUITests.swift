@@ -166,12 +166,25 @@ final class RestoreEraseUITests: XCTestCase {
     }
 
     private func tapConfirmationButton(identifier: String, description: String) {
-        let button = app.buttons[identifier]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), "Missing \(description)")
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5), "Missing confirmation sheet")
+        let matches = sheet.buttons.matching(identifier: identifier)
+        XCTAssertTrue(matches.firstMatch.waitForExistence(timeout: 5), "Missing \(description)")
+
+        // iOS 26 exposes a Button wrapper and its child with the same identifier
+        // and frame. Select the unique leaf inside the presented sheet. This
+        // also selects the single button exposed on iOS 18, and fails if there
+        // are multiple distinct actions rather than silently choosing one.
+        let actions = matches.allElementsBoundByIndex.filter {
+            $0.buttons.matching(identifier: identifier).count == 0
+        }
+        XCTAssertEqual(actions.count, 1, "Ambiguous \(description)")
+        guard actions.count == 1, let button = actions.first else { return }
         XCTAssertTrue(button.isEnabled, "Disabled \(description)")
         XCTAssertTrue(button.isHittable, "Unhittable \(description)")
         guard button.exists, button.isEnabled, button.isHittable else { return }
         button.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "Confirmation did not finish")
     }
 
     // MARK: - Launch and XCUI helpers
