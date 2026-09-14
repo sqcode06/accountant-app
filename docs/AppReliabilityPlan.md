@@ -108,14 +108,24 @@ The Settings switch represents the user's choice even if iOS blocks delivery.
 Actual notification delivery still needs a device check. These are one-shot
 reminders, not recurring daily notifications while the app stays unopened.
 
-Account-management and reconciliation coverage is now being extended. New
+Account-management and reconciliation coverage now passes native CI. New
 snapshot and real-file workflow tests cover running balances, currency/draft
 scope, per-account clearing and undo, and failed-save retry/relaunch. They found
 and fixed a partly cleared balance bug. Calendar cutoff tests also reproduced
-and fixed exclusion of the final fractional second of the selected day. New
-native journeys are under verification; the earlier passing runs above do not
-cover this batch. [AppTesting.md](AppTesting.md) tracks its results, and
-[OwnerReview.md](OwnerReview.md) now explains what the owner should check.
+and fixed exclusion of the final fractional second of the selected day and an
+extra hour after a daylight-saving change that skips midnight. The screen now
+distinguishes confirming drafts from matching entries to a statement, reports
+“Balance matches” precisely, and provides a keyboard Done action. Revision
+`9bda415` passed all 92 app tests and nine UI tests on each runtime in
+[native CI](https://github.com/sqcode06/accountant-app/actions/runs/34881928860),
+plus both Release builds and the unsigned device archive. All 339 core tests
+also passed on Linux and Windows. The first native attempt exposed an XCTest
+128-character lookup limit; stable-ID lookup plus full-label comparison corrected
+the test without relaxing its assertion. [AppTesting.md](AppTesting.md) retains
+that failure and the complete final results, and
+[OwnerReview.md](OwnerReview.md) now explains what the owner should check,
+including the similar statement labels, difference direction, currency
+clarity, and shortened transaction descriptions found during screenshot review.
 
 The previously reported exit is no
 longer reproducible by the user, so it is retained as an unresolved historical
@@ -311,9 +321,9 @@ The remaining scenarios still need fixtures and execution.
 | Overview / P1 | Known balances, finalized and draft transactions, archived accounts, two currencies. Balances/net worth use the documented scope; refresh after mutations; no unconverted cross-currency addition. | Core/app: PR; summary navigation/update UI: Broad. |
 | Capture / P0 | Expense, income, transfer; decimal and locale inputs; both Save and Save-and-confirm; invalid/empty input and repeated taps. Create exactly one correctly dated transaction with correct accounts, amount, status, and validation. | Core/app + expense smoke UI: PR; all entry modes/keyboard variants: Broad. |
 | Review and Activity / P1 | Mixed drafts/finalized entries and searchable memos. Review recategorization/confirmation counts once; delete/undo and filters affect their intended transaction/scope; persisted changes survive relaunch. | Core/app: PR; review/search/delete/undo UI: Broad. |
-| Accounts and categories / P1 | New, duplicate/invalid, archived, and referenced accounts. Create/rename/archive/restore persist; validation is visible; budgets and transaction references remain valid. | App: PR; management UI: Broad. |
+| Accounts and categories / P1 | New, duplicate/invalid, archived, and referenced accounts. Create/rename/archive/restore persist; validation is visible; budgets and transaction references remain valid. | App + create/rename/archive/restore UI: PR; other management variants: Broad. |
 | Import and classification / P0 | Valid, dirty, duplicate, locale-specific CSV; exact fee validation; purchase/income fees; safe rejection of ambiguous legacy splits; rule create/edit/pause/reorder/try and save failure. Preview/cancel do not mutate; preview identifies the bank description, proposed category and memo, and matching reason; later case-insensitive substring matches win per field; rules and ordering survive relaunch. The Debug fixture may bypass only the OS document picker, not CSV parsing, preview, review, saving, or relaunch. | Core/app and native CSV/rule journeys: PR, passed on iOS 18.5 and 26.2. OS document picker: Device. |
-| Reconciliation / P1 | Known statement, multiple accounts/currencies, draft/finalized/cleared entries, as-of boundaries. Correct scope and difference; clearing persists; unrelated data is preserved. | Core/app: PR; reconciliation UI: Broad. |
+| Reconciliation / P1 | Known statement, multiple accounts/currencies, draft/finalized/cleared entries, as-of boundaries. Correct scope and difference; clearing persists; unrelated data is preserved. | Core/app + clearing/undo/relaunch UI: PR; other statement UI variants: Broad. |
 | Export and backup restore / P0 | Full three-store backup, previous supported format, duplicate IDs, unsupported/corrupt backup, failed write. Export round-trips supported data; cancel/rejection is inert; restore is consistent after failure/relaunch. | Core/app real-file: PR; file-picker/share/restore UI: Broad + Device. |
 | Onboarding and settings / P1 | Fresh and already configured data. Setup is idempotent and optional where designed; currency/settings persist; revisiting setup preserves existing data. | App: PR; onboarding/settings UI: Broad. |
 | Themes and app icons / P1 | Each supported theme/icon, live draft/editor, changed tab. Settings persist without resetting navigation or losing work; supported icon changes and errors are handled. | App/UI: Broad; icon/system behavior: Device. |

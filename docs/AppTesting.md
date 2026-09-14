@@ -12,7 +12,8 @@ This document describes the app-level testing layer. The
 [reliability review and testing plan](AppReliabilityPlan.md) records the gaps
 found on 2026-09-13, the repair priorities, native CI prerequisites, and the
 expected-behavior matrix. The native gate covers the empty-category Budget
-regression, capture and confirmation, import rules, and restore/erase. The
+regression, capture and confirmation, import rules, restore/erase, account
+management, and statement clearing. The
 dated sections below record each revision and its verification results;
 the reliability plan retains the earlier milestones. Broader workflow
 coverage and hardware checks remain in that plan. Documentation-only changes
@@ -88,9 +89,54 @@ the portable Linux harness. It substitutes only observation declarations and
 does not validate SwiftUI rendering or navigation.
 
 The native account-management journey covers create, rename, archive, restore,
-and reopening after the app's real background flush. Reconciliation screen
-integration and its native journey are being verified in this batch. Native
-results for the previous revision below do not validate these new changes.
+and reopening after the app's real background flush. The reconciliation journey
+starts with EUR 100 cleared, an uncleared EUR 25 purchase at 23:59:59.5, a EUR 10
+draft, and a EUR 5 purchase at the next midnight. Account activity totals EUR 60;
+reconciliation for the selected date excludes the draft and next-day entry. A
+EUR 75 statement starts at a EUR -25 difference. Ticking the purchase reaches
+zero, and the test reopens the app to verify that cleared state survived. It
+then checks an empty checklist with a EUR 5 mismatch, marks the purchase pending
+again, and reopens once more to verify the reversal. Amount assertions compare
+exact signed values. Short swipes reveal actions before explicit taps, and the
+statement field's Done action dismisses the keyboard before continuing.
+
+The screen now labels the cleared figure “On statement” and says “Balance
+matches” when the difference is zero. Confirming drafts in Review is a separate
+step. An empty checklist or matching totals does not establish that every
+individual posting was checked.
+
+The [first native run](https://github.com/sqcode06/accountant-app/actions/runs/34879092558)
+at `7c61231` passed both Release builds, the unsigned device archive, all 92 app
+tests, and eight of nine UI tests on each runtime. The reconciliation journey
+reached clearing and relaunch successfully, then XCTest rejected a lookup using
+the full mismatch sentence: string-subscript queries have a 128-character limit.
+The screenshot showed the correct EUR 5 mismatch. The test now finds the stable
+identifier and compares its complete label, retaining the wording assertion.
+
+A separate Opus review inspected the matched, mismatched, and restored-account
+screenshots from both runtimes. The amounts, full copy, and active account state
+were correct, with no clipping at the tested size. It raised three remaining
+usability checks: “Statement balance” versus “On statement” can sound similar;
+positive differences have no explicit plus sign or extra emphasis; and the raw
+balance input has no currency symbol beside the formatted totals. These are
+recorded in [OwnerReview.md](OwnerReview.md) for the next phone review. The six
+screenshots cover portrait iPhone 16, default text size, light appearance, and
+English/EUR; they do not establish accessibility or other-layout coverage.
+
+The corrected iOS 18.5 pending-again screenshot also shows the long transaction
+description shortened to one line. Identifying the correct entry despite that
+truncation is another owner readability check. The screenshot shows the expected
+EUR -25 difference and pending row after relaunch.
+
+Revision `9bda415` passed the complete corrected
+[native run](https://github.com/sqcode06/accountant-app/actions/runs/34881928860):
+both Release builds, all 92 app tests (87 Swift Testing and five XCTest cases),
+and all nine UI tests on each of iOS 18.5 and iOS 26.2. That includes the complete
+clearing, mismatch, undo, and both relaunch checks. Xcode 26.2 also passed the
+unsigned Release device archive and packaged privacy/identity validation. The
+same revision passed all 339 core tests on each of Linux and Windows in
+[core CI](https://github.com/sqcode06/accountant-app/actions/runs/34881928836).
+Later documentation-only changes preserve this tested code.
 
 ## Budget saves and reminders — 2026-09-14
 

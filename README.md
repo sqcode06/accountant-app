@@ -32,12 +32,14 @@ Two things live in this repository:
 - **`Sources/AccountantCore`** — a UI-free Swift package that knows how money moves. No SwiftUI, no bank APIs, no platform persistence. It builds and tests on Linux, which is what makes the fast development loop possible.
 - **`AccountantApp/`** — the iOS app. SwiftUI, six themes, quick capture, an evening review queue, budgets, statement import, reconciliation, export and restore.
 
-The split is deliberate and load-bearing. Every accounting rule is in the package and covered by tests that run in under a second on any machine; the app target holds views and app state and nothing that decides what a balance means.
+The core owns the ledger rules and runs on Linux and Windows. App tests cover
+how screens use those rules, display balances, and save changes.
 
 ## Status
 
-The personal app is undergoing a reliability pass. Budget, import-rule, and
-restore/erase workflows now have passing native tests on iOS 18.5 and iOS 26.2.
+The personal app is undergoing a reliability pass. Budget, import-rule,
+restore/erase, account-management, and reconciliation workflows now have passing
+native tests on iOS 18.5 and iOS 26.2.
 Some workflow and physical-device checks remain. The previously reported Budget
 Stop exit is no longer reproducible by the user; its cause is still unconfirmed.
 
@@ -68,11 +70,14 @@ Start with [what needs your review](docs/OwnerReview.md) and the short
 - recurring transactions;
 - charts.
 
-**Verified how:** revision `20319eb` passed 339 core tests on each of Linux and
-Windows. Hosted macOS CI passed Release builds, 81 app tests, and seven UI tests
+**Verified how:** revision `9bda415` passed 339 core tests on each of Linux and
+Windows. Hosted macOS CI passed Release builds, 92 app tests, and nine UI tests
 on each supported test runtime. Those journeys cover Budget/capture/confirmation
 and import-rule management, CSV preview, review correction, saving, restore,
-erase, and relaunch. Budget Stop includes a failed-save Retry journey and
+erase, account creation/rename/archive/restore, and statement clearing/undo
+through relaunch. Reconciliation also checks the final fractional second of the
+selected day, draft exclusion, exact signed totals, and empty-checklist
+mismatches. Budget Stop includes a failed-save Retry journey and
 immediate relaunch; reminder permission and scheduling behavior has app tests.
 Xcode 26.2 also passed an unsigned Release device archive and its packaged
 privacy-manifest check. Signing and TestFlight distribution remain unverified.

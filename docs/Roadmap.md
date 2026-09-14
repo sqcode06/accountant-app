@@ -10,22 +10,22 @@ For the small set of things that need the owner's attention, use
 restore/erase have automated iOS coverage. An interrupted restore or erase now
 keeps the saved finances together. Budget actions now await saving, and failed
 Stop saves can be retried. Reminder permission changes and competing scheduling
-requests have regression tests. These changes passed native CI on iOS 18.5 and 26.2.
+requests have regression tests. Account creation, rename, archive, restore, and
+statement clearing/undo now pass through relaunch too. Partly cleared balances
+and the selected-day cutoff are corrected. These changes passed native CI on
+iOS 18.5 and 26.2.
 The old Budget Stop exit no longer reproduces
 on the user's iPhone; we have not established its cause.
 
 Before the personal beta, finish these checks:
 
-- Add an account-management screen journey: create, rename, archive, and restore.
-  Check that marking statement entries as cleared saves correctly and that the
-  account screen shows the right balances after reopening. This batch is in
-  progress, including fixes for partly cleared balances and the end-of-day
-  reconciliation cutoff; native verification is still pending.
 - Confirm actual reminder delivery and the permission explanation on an iPhone.
 - Exercise import, backup export, and restore through the real iPhone file
   picker and share sheet; the automated fixtures bypass file selection.
 - Verify LHV's import columns against a real export, and finish the remaining
-  budget, review, and accessibility checks.
+  budget, review, and accessibility checks. Check reconciliation wording,
+  difference direction, currency clarity, and shortened transaction descriptions
+  using the [owner checklist](OwnerReview.md).
 
 The [engineering checklist](AppReliabilityPlan.md) keeps the detailed evidence.
 The [TestFlight page](TestFlight.md) keeps distribution steps separate.
