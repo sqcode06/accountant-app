@@ -91,7 +91,7 @@ final class AccountantAppUITests: XCTestCase {
         // foreground transition before a real process termination and relaunch.
         Thread.sleep(forTimeInterval: 1)
         XCUIDevice.shared.press(.home)
-        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        XCTAssertTrue(app.waitUntilBackgrounded(), "App did not enter the background")
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5))
         XCTAssertTrue(app.tabBars.buttons["Budget"].waitForExistence(timeout: 5))

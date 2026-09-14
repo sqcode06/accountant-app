@@ -19,6 +19,12 @@ final class ImportRulesUITests: XCTestCase {
             attachment.name = "Final import-rules state"
             attachment.lifetime = .keepAlways
             self.add(attachment)
+            if self.testRun?.failureCount ?? 0 > 0 {
+                let hierarchy = XCTAttachment(string: app.debugDescription)
+                hierarchy.name = "Import-rules failure hierarchy"
+                hierarchy.lifetime = .keepAlways
+                self.add(hierarchy)
+            }
             app.terminate()
         }
     }
@@ -50,7 +56,7 @@ final class ImportRulesUITests: XCTestCase {
         )
         dismissKeyboard()
         attachScreenshot(named: "Rules try-match result")
-        reorderRule(movingID: citybeeID, beforeID: rimiID)
+        try reorderRule(movingID: citybeeID, beforeID: rimiID)
         assertRuleOrder(firstID: citybeeID, secondID: rimiID)
         persistAndRelaunch()
 
@@ -147,6 +153,13 @@ final class ImportRulesUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Nothing to review"].waitForExistence(timeout: 10))
         persistAndRelaunch()
 
+        waitAndTap(app.tabBars.buttons["Overview"], description: "Overview after relaunch")
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 5))
+        XCTAssertFalse(
+            app.buttons["review.open"].waitForExistence(timeout: 2),
+            "A review prompt remained after every imported transaction was confirmed"
+        )
+
         waitAndTap(app.tabBars.buttons["Activity"], description: "Activity tab after relaunch")
         assertVisibleText("September salary")
         assertVisibleText("CITYBEE RIDE")
@@ -165,12 +178,7 @@ final class ImportRulesUITests: XCTestCase {
             "Both the purchase and refund should survive relaunch"
         )
 
-        waitAndTap(app.tabBars.buttons["Overview"], description: "Overview after relaunch")
-        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 5))
-        XCTAssertFalse(
-            app.buttons["review.open"].waitForExistence(timeout: 2),
-            "A review prompt remained after every imported transaction was confirmed"
-        )
+        dismissKeyboard()
     }
 
     // MARK: - Launch and navigation
@@ -191,7 +199,7 @@ final class ImportRulesUITests: XCTestCase {
     private func persistAndRelaunch() {
         dismissKeyboard()
         XCUIDevice.shared.press(.home)
-        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        XCTAssertTrue(app.waitUntilBackgrounded(), "App did not enter the background")
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5))
         app.terminate()
@@ -281,7 +289,7 @@ final class ImportRulesUITests: XCTestCase {
         )
     }
 
-    private func reorderRule(movingID: String, beforeID: String) {
+    private func reorderRule(movingID: String, beforeID: String) throws {
         let reorderMode = button(identifier: "rules.reorder")
         waitAndTap(reorderMode, description: "Edit rule order")
 
@@ -293,22 +301,27 @@ final class ImportRulesUITests: XCTestCase {
         XCTAssertTrue(destinationRow.isHittable)
         guard movingRow.isHittable, destinationRow.isHittable else { return }
 
-        let matchingHandle = app.buttons.matching(NSPredicate(
+        let handles = app.buttons.matching(NSPredicate(
             format: "label CONTAINS[c] %@",
             "Reorder"
-        )).allElementsBoundByIndex.first { handle in
-            handle.isHittable
-                && abs(handle.frame.midY - movingRow.frame.midY) < movingRow.frame.height / 2
+        )).allElementsBoundByIndex
+        func handle(for row: XCUIElement) throws -> XCUIElement {
+            try XCTUnwrap(handles.first { handle in
+                handle.isHittable && row.frame.minY <= handle.frame.midY
+                    && handle.frame.midY <= row.frame.maxY
+            }, "Missing reorder handle for \(row.identifier)")
         }
 
-        let source = matchingHandle?.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            ?? app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(
-                CGVector(dx: movingRow.frame.maxX - 22, dy: movingRow.frame.midY)
-            )
-        let destination = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(
-            CGVector(dx: movingRow.frame.maxX - 22, dy: destinationRow.frame.minY + 2)
+        let source = try handle(for: movingRow)
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let destination = try handle(for: destinationRow)
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        source.press(
+            forDuration: 1,
+            thenDragTo: destination,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
         )
-        source.press(forDuration: 0.8, thenDragTo: destination)
 
         assertRuleOrder(firstID: movingID, secondID: beforeID)
         waitAndTap(reorderMode, description: "Finish editing rule order")
@@ -505,10 +518,11 @@ final class ImportRulesUITests: XCTestCase {
         guard keyboard.exists else { return }
 
         let returnKey = keyboard.buttons.matching(NSPredicate(
-            format: "label ==[c] %@ OR label ==[c] %@ OR label ==[c] %@",
+            format: "label ==[c] %@ OR label ==[c] %@ OR label ==[c] %@ OR label ==[c] %@",
             "Return",
             "Done",
-            "Go"
+            "Go",
+            "Search"
         )).firstMatch
         if returnKey.exists && returnKey.isHittable {
             returnKey.tap()

@@ -250,6 +250,7 @@ private struct DraftRow: View {
                     Label(details.categoryName, systemImage: "chevron.down")
                         .font(.uiBody)
                 }
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier("\(identifier).category")
             } else {
                 Text(details.categoryName)
