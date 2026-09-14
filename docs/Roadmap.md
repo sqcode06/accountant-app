@@ -45,6 +45,10 @@ is saved locally, waiting to sync, or needs a decision. This is planned work;
 there is no working sign-in or sharing service yet. The
 [implementation plan](SharingPlan.md) breaks it into deliverable steps.
 
+New network source will be available for inspection, auditing, and contribution
+work. The intended terms reserve independent hosting and product reuse; their
+scope must be settled before publication, with earlier MIT permissions preserved.
+
 **Then: debts and upcoming payments.** Show what you and your household owe,
 who owes it, due dates, minimum payments, and interest or fees. Paying a debt
 links to a real transaction. Terms need to be entered or verified for each

@@ -49,6 +49,30 @@ this document does not impose a separate retroactive calendar cutoff.
 
 ## Public access and ownership
 
+### Planned network implementation
+
+The owner confirmed on 2026-09-15 that new network and service code should be
+publicly inspectable while reserving independent deployment and product reuse.
+The intended exceptions allow isolated auditing and work on contributions to
+Accountant, including the local copying, building, modification, and testing
+needed for that work. They do not permit running an independent personal server
+or a service for other users. Original contributions require the existing
+signed assignment before incorporation.
+
+This is a policy for future code, not a change to the current license. Section
+2(b) of the root license currently permits private personal use. Before new
+network code is first published, define its file boundaries and obtain legal
+review of scoped terms that implement the stricter policy. Distinguish those
+permissions from normal use of the official app and service, including the
+client code required for the app's permitted personal use.
+
+Retain existing MIT grants, applicable third-party terms, and independent rights.
+Using old MIT accounting or merge code inside a new network component cannot
+withdraw permissions to that older material. The
+[sharing plan](SharingPlan.md) records the implementation prerequisite.
+
+### Current repository and independent rights
+
 - **GitHub forks:** public repositories permit viewing and forking through
   GitHub under [its Terms of Service, section D](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#d-user-generated-content).
   The license preserves those platform permissions and permits contribution

@@ -4,6 +4,29 @@ Status: proposed development sequence, 2026-09-14. No backend, login, or shared
 ledger has been implemented. The personal TestFlight beta proceeds independently.
 The [roadmap](Roadmap.md) is the short product overview.
 
+**Network-source policy, confirmed by the owner on 2026-09-15.** Publish new
+network and service implementation for transparency, review, and contributions.
+Permit inspection and isolated local builds, modifications, and tests needed
+for auditing or preparing improvements for Accountant. Independent hosting,
+including a private personal server, deployment for other users, and reuse of
+the protected implementation in another product require the owner's separate
+permission. Normal use of the official app and service remains governed by
+their applicable terms; source inspection does not grant production access.
+
+Accept bug reports and proposed fixes. Before incorporating another person's
+original code, follow the existing signed
+[contributor assignment process](../CONTRIBUTING.md). Genuine authorship and
+ownership are separate; accepting a pull request alone transfers neither.
+
+Before the first publication of network code, identify the exact files covered
+and apply reviewed, specifically scoped terms. The current root license permits
+private personal use and does not by itself express this stricter policy.
+Keep the existing personal-app permissions, earlier MIT material, and third-party
+licenses intact. In particular, already-published MIT merge primitives do not
+become restricted merely by being used in the new service. This paragraph
+records the intended policy; it does not change the current license or license
+code that has not yet been written. See [Licensing.md](Licensing.md).
+
 1. **Choose and prove the service boundary.** Evaluate managed authentication
    and transactional storage in a disposable development environment using
    synthetic finances. The service must verify identity, check current ledger

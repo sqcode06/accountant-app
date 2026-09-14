@@ -65,6 +65,14 @@ for history; the consolidation keeps the same tested app behavior.
 
 **When sharing development reaches a concrete proposal**
 
+Before network source is first published, review which files its terms cover:
+public inspection, isolated auditing, and contributions are intended to be
+allowed; independent hosting and product reuse require your permission. The
+current license permits private personal use, so the stricter network terms
+need separate wording and legal review. Keep the personal app's existing
+permissions and the earlier MIT grants intact. This records your decision;
+it is not another request to choose a policy now.
+
 Review who can see or change a shared ledger, how invitations and leaving work,
 and exactly what happens to private data on enrollment, sign-out, restore, and
 deletion. Also review the proposed service's cost, data location, retention, and
