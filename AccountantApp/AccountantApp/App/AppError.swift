@@ -44,6 +44,9 @@ struct AppError: Identifiable {
         case LedgerError.duplicateTransactionID(_):
             self.message = "A transaction with this ID already exists."
 
+        case let LedgerError.accountCurrencyMismatch(_, expected, actual):
+            self.message = "This account holds \(expected.code), so a \(actual.code) amount cannot be recorded in it. Use an account in \(actual.code), or an explicit conversion transaction."
+
         case TransactionCreationError.nonPositiveAmount(_):
             self.message = "Amount must be greater than zero."
 
@@ -64,6 +67,9 @@ struct AppError: Identifiable {
 
         case ImportError.classificationFailed(_):
             self.message = "Import classification failed."
+
+        case let ImportError.currencyMismatch(_, expected, actual):
+            self.message = "This statement line is in \(actual.code) but the account holds \(expected.code). Import it into a \(actual.code) account instead."
 
         case BankLineParseError.emptyInput:
             self.message = "The CSV input is empty."

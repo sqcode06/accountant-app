@@ -4,6 +4,7 @@ import AccountantCore
 struct AccountEditorView: View {
     enum Mode {
         case create
+        case createExpenseCategory
         case edit(Account)
     }
 
@@ -14,6 +15,8 @@ struct AccountEditorView: View {
 
     @State private var name: String
     @State private var kind: AccountKind
+    @State private var currency: Currency
+    @State private var isShowingAdvancedKinds = false
 
     init(mode: Mode) {
         self.mode = mode
@@ -22,27 +25,62 @@ struct AccountEditorView: View {
         case .create:
             _name = State(initialValue: "")
             _kind = State(initialValue: .asset)
+            _currency = State(initialValue: Currency("EUR"))
+        case .createExpenseCategory:
+            _name = State(initialValue: "")
+            _kind = State(initialValue: .expense)
+            _currency = State(initialValue: Currency("EUR"))
         case let .edit(account):
             _name = State(initialValue: account.name)
             _kind = State(initialValue: account.kind)
+            _currency = State(initialValue: account.currency ?? Currency("EUR"))
         }
+    }
+
+    /// Equity and Clearing are hidden until asked for.
+    ///
+    /// They are genuine account kinds, but "Equity" in a picker between "Income"
+    /// and "Expense" reads as a thing you are supposed to understand. Anyone who
+    /// needs them knows to look; nobody else should have to skip past them to add
+    /// a bank account. An account that already *is* one of them still shows its
+    /// own kind, or the editor would misreport what it is looking at.
+    private var offeredKinds: [AccountKind] {
+        if isShowingAdvancedKinds || AccountKindCatalog.isAdvanced(kind) {
+            return AccountKindCatalog.all
+        }
+
+        return AccountKindCatalog.everyday
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Account") {
-                    TextField("Name", text: $name)
+                Section(isCreatingExpenseCategory ? "Category" : "Account") {
+                    TextField(isCreatingExpenseCategory ? "Category name" : "Name", text: $name)
                         .textInputAutocapitalization(.words)
                         .submitLabel(.done)
+                        .accessibilityIdentifier("account.name")
 
-                    Picker("Kind", selection: $kind) {
-                        ForEach(AccountKindCatalog.all, id: \.self) { kind in
-                            Label(kind.displayName, systemImage: kind.systemImageName)
-                                .tag(kind)
+                    if !isCreatingExpenseCategory {
+                        Picker("Kind", selection: $kind) {
+                            ForEach(offeredKinds, id: \.self) { kind in
+                                Label(kind.displayName, systemImage: kind.systemImageName)
+                                    .tag(kind)
+                            }
                         }
+                        .disabled(isEditing)
                     }
-                    .disabled(isEditing)
+
+                    Text(kind.plainDescription)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if !isEditing && !isCreatingExpenseCategory && !isShowingAdvancedKinds {
+                        Button("Show accounting kinds") {
+                            isShowingAdvancedKinds = true
+                        }
+                        .font(.footnote)
+                    }
 
                     if isEditing {
                         Text("Account kind is fixed for now. Create a new account if the bucket belongs to a different accounting category.")
@@ -51,8 +89,34 @@ struct AccountEditorView: View {
                     }
                 }
 
+                Section {
+                    if kind.isDenominated {
+                        Picker("Currency", selection: $currency) {
+                            ForEach(CurrencyCatalog.options(including: currency), id: \.code) { option in
+                                Text(CurrencyCatalog.displayName(for: option)).tag(option)
+                            }
+                        }
+                        .disabled(isEditing)
+                    } else {
+                        HStack {
+                            Text("Currency")
+                            Spacer()
+                            Text("Any")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    if kind.isDenominated {
+                        Text(isEditing
+                             ? "Currency is fixed once an account has been created, so existing amounts stay meaningful."
+                             : "This account will only accept amounts in this currency. Anything else is rejected rather than quietly ignored.")
+                    } else {
+                        Text("Categories accept any currency. Groceries bought in euros and in dollars both belong here.")
+                    }
+                }
+
                 if cleanedName.isEmpty {
-                    Text("Account name is required.")
+                    Text(isCreatingExpenseCategory ? "Category name is required." : "Account name is required.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -87,6 +151,7 @@ struct AccountEditorView: View {
                 }
             }
             .navigationTitle(title)
+            .appErrorAlert()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -99,6 +164,7 @@ struct AccountEditorView: View {
                         save()
                     }
                     .disabled(cleanedName.isEmpty)
+                    .accessibilityIdentifier("account.save")
                 }
             }
         }
@@ -108,6 +174,8 @@ struct AccountEditorView: View {
         switch mode {
         case .create:
             "New Account"
+        case .createExpenseCategory:
+            "New category"
         case .edit:
             "Edit Account"
         }
@@ -119,6 +187,10 @@ struct AccountEditorView: View {
         } else {
             false
         }
+    }
+
+    private var isCreatingExpenseCategory: Bool {
+        if case .createExpenseCategory = mode { true } else { false }
     }
 
     private var cleanedName: String {
@@ -134,10 +206,11 @@ struct AccountEditorView: View {
             let didSave: Bool
 
             switch mode {
-            case .create:
+            case .create, .createExpenseCategory:
                 didSave = await appState.createAccount(
                     name: cleanedName,
-                    kind: kind
+                    kind: kind,
+                    currency: kind.isDenominated ? currency : nil
                 )
             case let .edit(account):
                 didSave = await appState.renameAccount(
@@ -155,13 +228,13 @@ struct AccountEditorView: View {
 
 #Preview("Create account") {
     AccountEditorView(mode: .create)
-        .environmentObject(AppState(repository: AccountEditorPreviewRepository()))
+        .environmentObject(AppState(dataRepository: AccountEditorPreviewRepository()))
 }
 
-private struct AccountEditorPreviewRepository: LedgerRepository {
-    func loadOrCreate() async throws -> Ledger {
-        Ledger()
+private struct AccountEditorPreviewRepository: AppDataRepository {
+    func load() async -> AppDataLoadResult {
+        AppDataLoadResult(data: LedgerBackup(ledger: Ledger()))
     }
 
-    func save(_ ledger: Ledger) async throws {}
+    func save(_ data: LedgerBackup) async throws {}
 }

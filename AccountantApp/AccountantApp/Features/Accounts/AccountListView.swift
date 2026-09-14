@@ -6,45 +6,50 @@ struct AccountListView: View {
 
     @State private var isShowingArchived = false
     @State private var isPresentingNewAccount = false
-    @State private var accountToEdit: EditableAccount?
 
     var body: some View {
-        Group {
+        let visibleAccounts = self.visibleAccounts
+        let archivedCount = self.archivedCount
+
+        return Group {
             if visibleAccounts.isEmpty {
                 ContentUnavailableView(
                     emptyTitle,
                     systemImage: emptySystemImage,
-                    description: Text(emptyDescription)
+                    description: Text(emptyDescription(archivedCount: archivedCount))
                 )
             } else {
                 List {
                     Section {
                         ForEach(visibleAccounts, id: \.id) { account in
-                            AccountRowView(account: account)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    accountToEdit = EditableAccount(account: account)
-                                }
-                                .swipeActions(edge: .trailing) {
-                                    if account.status == .active {
-                                        Button(role: .destructive) {
-                                            Task {
-                                                await appState.archiveAccount(id: account.id)
-                                            }
-                                        } label: {
-                                            Label("Archive", systemImage: "archivebox")
+                            NavigationLink {
+                                AccountDetailView(accountID: account.id)
+                                    .environmentObject(appState)
+                            } label: {
+                                AccountRowView(account: account)
+                            }
+                            .accessibilityIdentifier("accounts.account.\(account.id.rawValue.uuidString)")
+                            .swipeActions(edge: .trailing) {
+                                if account.status == .active {
+                                    Button(role: .destructive) {
+                                        Task {
+                                            await appState.archiveAccount(id: account.id)
                                         }
-                                    } else {
-                                        Button {
-                                            Task {
-                                                await appState.restoreAccount(id: account.id)
-                                            }
-                                        } label: {
-                                            Label("Restore", systemImage: "arrow.uturn.backward")
-                                        }
-                                        .tint(.blue)
+                                    } label: {
+                                        Label("Archive", systemImage: "archivebox")
                                     }
+                                } else {
+                                    Button {
+                                        Task {
+                                            await appState.restoreAccount(id: account.id)
+                                        }
+                                    } label: {
+                                        Label("Restore", systemImage: "arrow.uturn.backward")
+                                    }
+                                    .tint(.blue)
+                                    .accessibilityIdentifier("accounts.restore")
                                 }
+                            }
                         }
                     } header: {
                         Text(isShowingArchived ? "All Accounts" : "Active Accounts")
@@ -67,6 +72,7 @@ struct AccountListView: View {
                             systemImage: isShowingArchived ? "archivebox.fill" : "archivebox"
                         )
                     }
+                    .accessibilityIdentifier("accounts.showArchived")
                 }
             }
 
@@ -76,14 +82,11 @@ struct AccountListView: View {
                 } label: {
                     Label("Add Account", systemImage: "plus")
                 }
+                .accessibilityIdentifier("accounts.add")
             }
         }
         .sheet(isPresented: $isPresentingNewAccount) {
             AccountEditorView(mode: .create)
-                .environmentObject(appState)
-        }
-        .sheet(item: $accountToEdit) { editableAccount in
-            AccountEditorView(mode: .edit(editableAccount.account))
                 .environmentObject(appState)
         }
     }
@@ -110,7 +113,7 @@ struct AccountListView: View {
         isShowingArchived ? "tray" : "tray.circle"
     }
 
-    private var emptyDescription: String {
+    private func emptyDescription(archivedCount: Int) -> String {
         if isShowingArchived {
             "Create your first account to start shaping the ledger."
         } else if archivedCount > 0 {
@@ -154,25 +157,17 @@ private struct AccountRowView: View {
     }
 }
 
-private struct EditableAccount: Identifiable {
-    let account: Account
-
-    var id: AccountID {
-        account.id
-    }
-}
-
 #Preview {
     NavigationStack {
         AccountListView()
-            .environmentObject(AppState(repository: AccountListPreviewRepository()))
+            .environmentObject(AppState(dataRepository: AccountListPreviewRepository()))
     }
 }
 
-private struct AccountListPreviewRepository: LedgerRepository {
-    func loadOrCreate() async throws -> Ledger {
-        Ledger()
+private struct AccountListPreviewRepository: AppDataRepository {
+    func load() async -> AppDataLoadResult {
+        AppDataLoadResult(data: LedgerBackup(ledger: Ledger()))
     }
 
-    func save(_ ledger: Ledger) async throws {}
+    func save(_ data: LedgerBackup) async throws {}
 }

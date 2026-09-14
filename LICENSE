@@ -1,21 +1,137 @@
-MIT License
+Accountant Source Available License
+Version 1.0
 
 Copyright (c) 2026 Oleksandr Mazur
+All rights reserved except as expressly granted below.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Scope and ownership
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+"Licensor" means Oleksandr Mazur. "Software" means the copyrightable material
+made available under this license in https://github.com/sqcode06/accountant-app,
+including the iOS application, AccountantCore, tests, documentation, and assets,
+to the extent Licensor owns or is authorized to license that material. A
+"modified version" means material derived from or incorporating the Software.
+Separately licensed material and earlier license grants are addressed in
+section 6.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+This license grants limited permissions, not ownership. Licensor retains
+ownership of Licensor's work. Other authors retain ownership of their work
+unless they separately assign it. This is a source available license with use
+and distribution restrictions; it is not an open source license.
+
+2. Permissions
+
+Subject to this license, Licensor grants you a nonexclusive, worldwide,
+royalty-free license to:
+
+(a) view, download, and study the Software;
+(b) copy, build, run, and modify the Software privately for your own personal,
+    noncommercial use, and not on behalf of a business or another person;
+(c) copy, build, run, and modify the Software to learn how it works, evaluate or
+    test it, or develop improvements for the official Accountant project;
+(d) maintain source forks on GitHub and share source changes through those
+    forks, issues, discussions, and pull requests for those purposes; and
+(e) send source changes or test builds directly to Licensor for review.
+
+You may use your own devices, simulators, and build or test services acting on
+your behalf for these purposes. This does not permit publishing build artifacts
+or providing the app to other users. Use to operate a business is not licensed
+by this section.
+
+Keep this license and applicable copyright and attribution notices with copies
+and source forks. Identify modified versions as unofficial and describe your
+changes. Recipients of permitted source copies receive the same permissions
+directly from Licensor under this license; you may not offer broader rights.
+
+3. Rights reserved
+
+Except for section 2, section 6, or Licensor's separate written permission,
+you may not:
+
+(a) redistribute, publish, sell, rent, sublicense, or otherwise supply the
+    Software or modified versions to others, whether free of charge or paid;
+(b) distribute builds through the App Store, TestFlight, another marketplace,
+    a website, enterprise or ad hoc distribution, or any other channel;
+(c) copy or incorporate the Software, including AccountantCore or portions of
+    the code or assets, into another application, library, product, or service;
+(d) operate the Software as a product or service for others; or
+(e) present the Software or a modified version as your own original work or as
+    an official Accountant release, or remove required ownership notices.
+
+Renaming the app, changing its branding or bundle identifier, porting it, or
+making small or large edits does not remove these restrictions on the Software.
+Licensor reserves commercial exploitation and release rights, subject to
+section 6, and may authorize others separately in writing.
+
+No trademark rights are granted, except use reasonably needed to identify the
+project and describe a permitted contribution. This does not restrict lawful
+descriptive references or reviews. You may not imply Licensor's endorsement.
+
+4. Contributions
+
+Submitting a contribution does not by itself transfer copyright or give you
+ownership of the existing project. See CONTRIBUTING.md for the contribution
+process and the separate signed assignment required before incorporating
+original contributions from others. A signed contributor agreement governs
+the rights it covers and takes precedence over this license for those rights.
+
+If you submit an original contribution for review, you grant Licensor a
+nonexclusive, worldwide, royalty-free license to reproduce, retain, inspect,
+build, run, and test that contribution, directly and through build or test
+services acting on Licensor's behalf, solely to review it and decide whether to
+accept it. This limited license includes retaining archival copies and review
+records. It does not transfer ownership or permit Licensor to incorporate the
+contribution into the Software, distribute or release it, or use it in another
+product. Those activities require the signed contributor agreement or other
+separate permission from the contribution's rights holder.
+
+5. Official app releases
+
+Licensor may distribute official app builds under separate end-user terms.
+This source license neither replaces those terms nor authorizes third parties
+to distribute app builds.
+
+6. Earlier licenses, third-party material, and independent rights
+
+This license does not revoke, replace, or narrow rights already granted in
+material previously made available under the MIT License or another license.
+Recipients may continue to use, modify, and redistribute that material under
+the applicable earlier terms, including in their own forks and products.
+The historical MIT text and copyright notice are preserved in
+licenses/MIT-legacy.txt. Their presence does not grant an MIT license to new
+material first made available exclusively under this license.
+
+Separately identified third-party material remains subject to its own license
+and notices. Licensor grants only rights Licensor owns or is authorized to
+grant; this license does not assert ownership of third-party material.
+
+Nothing here restricts permissions independently granted to GitHub or its users
+under GitHub's Terms of Service, including viewing and forking public
+repositories through GitHub. These permissions are not a grant under this
+license to distribute app builds or reuse the Software in other products.
+
+Nothing here limits fair use, fair dealing, other rights that applicable law
+does not permit to be restricted, or use of ideas, facts, and methods that are
+not protected by copyright. Independently written code that does not copy
+protected material is not made subject to this license by studying the project.
+
+7. Termination
+
+Permissions Licensor grants you under this license terminate if you violate its
+conditions. After termination, stop exercising those permissions and delete
+copies held solely under them. Termination does not affect rights held
+independently under section 6. Sections concerning ownership, reserved rights,
+independent rights, and disclaimers continue to apply to the extent permitted by
+law.
+
+8. Disclaimer and limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+LICENSOR AND CONTRIBUTORS ARE NOT LIABLE FOR CLAIMS, DAMAGES, OR OTHER
+LIABILITY ARISING FROM THE SOFTWARE OR ITS USE, WHETHER IN CONTRACT, TORT,
+OR OTHERWISE. THIS SECTION DOES NOT EXCLUDE LIABILITY OR RIGHTS THAT
+APPLICABLE LAW DOES NOT ALLOW TO BE EXCLUDED.
+
+For separate permissions, contact Oleksandr Mazur at sqcode06@gmail.com.

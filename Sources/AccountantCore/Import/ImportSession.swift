@@ -10,6 +10,18 @@ public enum ImportError: Error, Equatable, Sendable {
     case invalidTransaction
     case duplicateExternalIDInBatch(TransactionOrigin)
     case classificationFailed(ClassificationError)
+
+    /// A statement line is denominated in a currency the target account does not hold.
+    ///
+    /// Reported as a per-line failure so the row is visibly rejected in the preview,
+    /// rather than being imported and then silently excluded from every balance.
+    case currencyMismatch(AccountID, expected: Currency, actual: Currency)
+
+    /// The statement lists a fee but no account was chosen to hold it.
+    ///
+    /// Reported rather than absorbed: folding the fee into the amount would hide
+    /// what charges cost, and dropping it would leave the balance short.
+    case feeAccountMissing
 }
 
 public enum ImportLineOutcome: Equatable, Sendable {
@@ -108,6 +120,9 @@ public extension ImportPipeline {
 
             do {
                 draft = try makeDraft(from: line, now: now)
+            } catch let error as ImportError {
+                outcomes.append(.failed(line: line, error: error))
+                continue
             } catch {
                 outcomes.append(
                     .failed(line: line, error: .invalidTransaction)
@@ -185,7 +200,7 @@ private func existingTransactionID(
     ledger.transactions.first { $0.origin == origin }?.id
 }
 
-private func firstAccountError(
+func firstAccountError(
     in transaction: Transaction,
     ledger: Ledger
 ) -> ImportError? {
@@ -193,6 +208,18 @@ private func firstAccountError(
     for posting in transaction.postings {
         if let error = accountError(for: posting.accountID, in: ledger) {
             return error
+        }
+
+        // An account with no declared currency accepts any currency.
+        if let account = ledger.accounts[posting.accountID],
+           let declared = account.currency,
+           declared != posting.money.currency {
+
+            return .currencyMismatch(
+                posting.accountID,
+                expected: declared,
+                actual: posting.money.currency
+            )
         }
     }
 

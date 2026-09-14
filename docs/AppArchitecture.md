@@ -1,3 +1,8 @@
+> Persistence update (2026-09-14): the shipped app now uses
+> `AppDataRepository` → `AppDataStore` and one combined schema-5 snapshot.
+> Older repository examples below describe the original ledger-only architecture.
+> See [PersistenceRecovery.md](PersistenceRecovery.md) for the current boundary.
+
 # Accountant iOS App Architecture
 
 This document defines how the future iOS app should sit on top of `AccountantCore`.

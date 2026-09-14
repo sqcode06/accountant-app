@@ -32,11 +32,19 @@ final class ImportClassificationTests: XCTestCase {
         XCTAssertEqual(draft.postings.count, 2)
         XCTAssertEqual(
             draft.postings[0],
-            Posting(accountID: fixture.bank.id, money: Money(Decimal(-12), currency: fixture.eur))
+            Posting(
+                accountID: fixture.bank.id,
+                money: Money(Decimal(-12), currency: fixture.eur),
+                role: .statement
+            )
         )
         XCTAssertEqual(
             draft.postings[1],
-            Posting(accountID: fixture.groceries.id, money: Money(Decimal(12), currency: fixture.eur))
+            Posting(
+                accountID: fixture.groceries.id,
+                money: Money(Decimal(12), currency: fixture.eur),
+                role: .counterparty
+            )
         )
     }
 
@@ -251,6 +259,95 @@ final class ImportClassificationTests: XCTestCase {
         )
     }
 
+    func testCategoryRuleClassifiesFeeBearingOutgoingLineWithoutChangingFeePosting() throws {
+        let fixture = makeFixture()
+        let pipeline = fixture.pipelineWithFees
+        let line = fixture.line(
+            description: "RIMI EESTI",
+            amount: Decimal(-12),
+            fee: Decimal(string: "0.50")
+        )
+        let classifier = TransactionClassifier(rules: [
+            DescriptionContainsRule("rimi", counterpartyAccountID: fixture.groceries.id)
+        ])
+
+        let preview = pipeline.previewImport(
+            lines: [line],
+            into: fixture.ledger,
+            classifier: classifier,
+            now: fixture.now
+        )
+
+        guard case .proposed(_, let draft, _) = preview.outcomes.first else {
+            return XCTFail("Expected fee-bearing line to remain importable")
+        }
+
+        XCTAssertEqual(draft.postings.map(\.role), [.statement, .counterparty, .fee])
+        XCTAssertEqual(draft.postings[1].accountID, fixture.groceries.id)
+        XCTAssertEqual(draft.postings[1].money.amount, Decimal(12))
+        XCTAssertEqual(draft.postings[2].accountID, fixture.fees.id)
+        XCTAssertEqual(draft.postings[2].money.amount, Decimal(string: "0.50"))
+    }
+
+    func testCategoryRuleClassifiesFeeBearingInflowWithoutChangingFeePosting() throws {
+        let fixture = makeFixture()
+        let pipeline = fixture.pipelineWithFees
+        let line = fixture.line(
+            description: "SALARY ACME",
+            amount: Decimal(100),
+            fee: Decimal(string: "0.50")
+        )
+        let classifier = TransactionClassifier(rules: [
+            DescriptionContainsRule("salary", counterpartyAccountID: fixture.salary.id)
+        ])
+
+        let preview = pipeline.previewImport(
+            lines: [line],
+            into: fixture.ledger,
+            classifier: classifier,
+            now: fixture.now
+        )
+
+        guard case .proposed(_, let draft, _) = preview.outcomes.first else {
+            return XCTFail("Expected fee-bearing inflow to remain importable")
+        }
+
+        XCTAssertEqual(draft.postings.map(\.role), [.statement, .counterparty, .fee])
+        XCTAssertEqual(draft.postings[0].money.amount, Decimal(string: "99.50"))
+        XCTAssertEqual(draft.postings[1].accountID, fixture.salary.id)
+        XCTAssertEqual(draft.postings[1].money.amount, Decimal(-100))
+        XCTAssertEqual(draft.postings[2].accountID, fixture.fees.id)
+    }
+
+    func testClassifierTargetCurrencyMismatchFailsDuringPreview() throws {
+        let fixture = makeFixture()
+        let line = fixture.line(description: "RIMI EESTI")
+        let classifier = TransactionClassifier(rules: [
+            DescriptionContainsRule("rimi", counterpartyAccountID: fixture.usdCategory.id)
+        ])
+
+        let preview = fixture.pipeline.previewImport(
+            lines: [line],
+            into: fixture.ledger,
+            classifier: classifier,
+            now: fixture.now
+        )
+
+        XCTAssertEqual(
+            preview.outcomes,
+            [
+                .failed(
+                    line: line,
+                    error: .currencyMismatch(
+                        fixture.usdCategory.id,
+                        expected: fixture.usd,
+                        actual: fixture.eur
+                    )
+                )
+            ]
+        )
+    }
+
     func testClassifiedPreviewDoesNotMutateLedger() throws {
         let fixture = makeFixture()
         let before = fixture.ledger
@@ -276,22 +373,30 @@ final class ImportClassificationTests: XCTestCase {
 
 private struct ImportClassificationFixture {
     let eur: Currency
+    let usd: Currency
     let ledger: Ledger
     let bank: Account
     let uncategorized: Account
     let groceries: Account
     let food: Account
     let transport: Account
+    let fees: Account
+    let salary: Account
+    let usdCategory: Account
     let pipeline: ImportPipeline
     let now: Date
 
     init() {
         let eur = Currency("EUR")
+        let usd = Currency("USD")
         let bank = Account(name: "Swedbank", kind: .asset)
         let uncategorized = Account(name: "Uncategorized", kind: .clearing)
         let groceries = Account(name: "Groceries", kind: .expense)
         let food = Account(name: "Food Delivery", kind: .expense)
         let transport = Account(name: "Transport", kind: .expense)
+        let fees = Account(name: "Bank fees", kind: .expense)
+        let salary = Account(name: "Salary", kind: .income)
+        let usdCategory = Account(name: "US expenses", kind: .expense, currency: usd)
         let now = Date(timeIntervalSince1970: 123_456)
 
         var ledger = Ledger()
@@ -300,6 +405,9 @@ private struct ImportClassificationFixture {
         ledger.addAccount(groceries)
         ledger.addAccount(food)
         ledger.addAccount(transport)
+        ledger.addAccount(fees)
+        ledger.addAccount(salary)
+        ledger.addAccount(usdCategory)
 
         let pipeline = ImportPipeline(
             source: "Swedbank",
@@ -308,26 +416,42 @@ private struct ImportClassificationFixture {
         )
 
         self.eur = eur
+        self.usd = usd
         self.ledger = ledger
         self.bank = bank
         self.uncategorized = uncategorized
         self.groceries = groceries
         self.food = food
         self.transport = transport
+        self.fees = fees
+        self.salary = salary
+        self.usdCategory = usdCategory
         self.pipeline = pipeline
         self.now = now
     }
 
     func line(
         description: String,
-        externalID: String? = "X1"
+        externalID: String? = "X1",
+        amount: Decimal = Decimal(-12),
+        fee: Decimal? = nil
     ) -> BankLine {
         BankLine(
             date: Date(timeIntervalSince1970: 100),
-            amount: Decimal(-12),
+            amount: amount,
             currency: eur,
             description: description,
-            externalID: externalID
+            externalID: externalID,
+            fee: fee
+        )
+    }
+
+    var pipelineWithFees: ImportPipeline {
+        ImportPipeline(
+            source: "Swedbank",
+            statementAccountID: bank.id,
+            defaultCounterpartyAccountID: uncategorized.id,
+            feeAccountID: fees.id
         )
     }
 }

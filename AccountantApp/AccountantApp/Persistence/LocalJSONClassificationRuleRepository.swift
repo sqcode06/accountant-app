@@ -1,4 +1,5 @@
 import Foundation
+import AccountantCore
 
 struct LocalJSONClassificationRuleRepository: ClassificationRuleRepository {
     let fileURL: URL
@@ -23,41 +24,45 @@ struct LocalJSONClassificationRuleRepository: ClassificationRuleRepository {
         return LocalJSONClassificationRuleRepository(fileURL: fileURL)
     }
 
+    private var store: JSONFileStore<[ClassificationRuleConfiguration]> {
+        JSONFileStore(fileURL: fileURL) { [] }
+    }
+
     func loadOrCreate() async throws -> [ClassificationRuleConfiguration] {
-        let fileURL = fileURL
+        switch await load() {
+        case let .loaded(rules): return rules
+        case .empty: return []
+        case .unreadable: throw StoreRecoveryError.recoveryUnresolved
+        }
+    }
 
-        return try await Task.detached(priority: .utility) {
-            guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                return []
-            }
+    /// The safe path — see `LocalJSONBudgetRepository.load()`.
+    func load() async -> StoreLoadOutcome<[ClassificationRuleConfiguration]> {
+        let store = store
 
-            let data = try Data(contentsOf: fileURL)
-            return try Self.decoder.decode([ClassificationRuleConfiguration].self, from: data)
+        return await Task.detached(priority: .utility) {
+            store.loadOutcome()
         }.value
     }
 
     func save(_ rules: [ClassificationRuleConfiguration]) async throws {
-        let fileURL = fileURL
-
+        let store = store
         try await Task.detached(priority: .utility) {
-            let directory = fileURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-
-            let data = try Self.encoder.encode(rules)
-            try data.write(to: fileURL, options: [.atomic])
+            try store.save(rules)
         }.value
     }
 
-    private static var encoder: JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return encoder
+    func replaceForRecovery(_ rules: [ClassificationRuleConfiguration]) async throws {
+        let store = store
+        try await Task.detached(priority: .utility) {
+            try store.replaceForRecovery(rules)
+        }.value
     }
 
-    private static var decoder: JSONDecoder {
-        JSONDecoder()
+    func completeRecovery() async throws {
+        let store = store
+        try await Task.detached(priority: .utility) {
+            try store.completeRecovery()
+        }.value
     }
 }
