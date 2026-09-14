@@ -37,8 +37,9 @@ The split is deliberate and load-bearing. Every accounting rule is in the packag
 ## Status
 
 The app is undergoing a reliability pass after iPhone testing exposed budget
-interaction and data-recovery problems. The current changes need native build
-and simulator evidence before being treated as a dependable baseline. See the
+interaction and data-recovery problems. Budget and import-rule workflows now
+have passing native tests on iOS 18.5 and iOS 26.2. Restore/erase consistency and
+broader workflow checks remain open. See the
 [reliability status and remaining repairs](docs/AppReliabilityPlan.md).
 
 **Implemented workflows (verification is still in progress):**
@@ -62,11 +63,12 @@ and simulator evidence before being treated as a dependable baseline. See the
 - recurring transactions;
 - charts.
 
-**Verified how:** the core tests run on Linux and Windows. A separate macOS
-workflow now builds the iOS app and runs its native test plan, including the
-first budget/capture/confirmation UI workflow. Configuration alone does not
-establish that a candidate passed; check the run for the revision being built.
-See [`docs/AppTesting.md`](docs/AppTesting.md).
+**Verified how:** code revision `d87a44d` passed 324 core tests on Linux and
+Windows. Hosted macOS CI passed Release builds, 58 app tests, and five UI tests
+on each supported test runtime. Those journeys cover Budget/capture/confirmation
+and import-rule management, CSV preview, review correction, saving, and relaunch.
+The run links and manual-testing boundaries are in
+[`docs/AppTesting.md`](docs/AppTesting.md).
 
 Architecture notes for the app layer: [`docs/AppArchitecture.md`](docs/AppArchitecture.md). Redesign working notes: [`docs/Redesign.md`](docs/Redesign.md). Voice and palette: [`docs/Brand.md`](docs/Brand.md).
 
@@ -620,15 +622,17 @@ Things we care about:
 
 Finish the [reliability plan](docs/AppReliabilityPlan.md) before adding features:
 
-1. Verify the actual iOS build and native test suite on the candidate revision.
-2. Make restore/erase use one coherent saved state and give Stop an awaited
+1. Make restore/erase use one coherent saved state and give Stop an awaited
    completion result; test failures and interruption around every write.
-3. Verify the reported budget interactions on identified simulator/device
+2. Verify the broader reported budget interactions on identified simulator/device
    builds. The historical Stop exit still has no established cause.
-4. Repair CSV precision and reminder delivery, permission refresh, and both
+3. Finish reminder delivery, permission refresh, and both
    confirmation routes; finish checks of the existing workflows.
-5. Validate the LHV import preset against a clean export. Swedbank and Revolut
+4. Validate the LHV import preset against a clean export. Swedbank and Revolut
    already have real-file evidence; LHV's current columns are still provisional.
+
+Keep the core and native gates passing for subsequent code changes. CSV decimal
+precision and malformed-fee handling now have regression coverage.
 
 Longer-term and deliberately not started: OCR receipts, bank API integration, learned classification, multi-currency conversion, SQLite.
 

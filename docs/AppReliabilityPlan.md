@@ -6,9 +6,10 @@ reviews at extra-high effort covered budget interactions, persistence, and test
 coverage. An Astra review at extra-high effort challenged their findings and
 independently reproduced the principal persistence failures.
 
-**Status: first implementation pass passed native CI on iOS 18.5; further
-stabilization remains open.** A later iOS 26.2 device report exposed a disabled,
-stretched empty-budget action. The reported Stop exit remains undiagnosed.
+**Status: the Budget and import-rule workflows passed native CI on iOS 18.5
+and iOS 26.2; further stabilization remains open.** The disabled, stretched
+empty-budget action has a regression test on both runtimes. The reported Stop
+exit remains undiagnosed, and coherent restore/erase remains the next repair.
 
 ## Implementation update — 2026-09-14
 
@@ -29,17 +30,22 @@ stretched empty-budget action. The reported Stop exit remains undiagnosed.
 - REL-07/08: a shared scheme, test plan, debug-only isolated launch fixture,
   behavioral budget UI test, and [macOS workflow](../.github/workflows/ios.yml)
   have been added. The stale load fixture and debounced-save assertion are
-  corrected. Revision `f9c2af3` passed a Release build, 46 app tests, and two UI
-    tests in [native CI](https://github.com/sqcode06/accountant-app/actions/runs/34783889829).
+  corrected. Code revision `d87a44d` passed a Release build, 58 app tests, and
+  five UI tests on each runtime in
+  [native CI](https://github.com/sqcode06/accountant-app/actions/runs/34794280441).
 - Import-rule stabilization: rules can be edited, paused, reordered, and tried
   against sample statement text. Matching is a global case-insensitive substring
   check in saved order, with the later match winning each field it changes. Rule
   writes wait for rule storage and retain unsuccessful changes for retry. The
   preview shows the original bank description, the proposed category and memo,
-  and which matching rule supplied each change. Imported purchases and income retain separate fee postings; malformed
-  CSV fee values are rejected, and ambiguous legacy splits are left unchanged.
-  Native import/review/save/relaunch execution on iOS 18.5 and 26.2 is still
-  pending for this candidate.
+  and which matching rule supplied each change. Imported purchases and income
+  retain separate fee postings; malformed CSV fee values are rejected, and
+  ambiguous legacy splits are left unchanged. Both runtimes passed the real
+  CSV import, review correction, confirmation, and relaunch journey, plus rule
+  editing, pausing, try-match, drag reordering, and persisted order. The OS
+  document picker is the only bypass in that fixture and still needs a device
+  check. [AppTesting.md](AppTesting.md) records the exact coverage and the
+  iOS 18 menu interaction used by the test.
 
 The subsequent iOS 26.2 empty-budget report exposed two coverage gaps: the
 fixture always included an active expense category, and the only native runtime
@@ -48,12 +54,14 @@ empty, with no explanation or way forward on the screen. The repair offers
 category creation from both entry points and uses an explicitly sized, labelled
 button instead of a full-screen unavailable-view action inside a List row.
 BUD-08 covers the missing state; CI now includes iOS 26.2 as well as iOS 18.5.
-These additions require passing results on the revision being built.
+These scenarios passed on both runtimes at code revision `d87a44d`.
 
-The core suite and a temporary Linux package compiling the current AppState,
-repository, helper, and app-test sources pass. That temporary package substitutes
-only observation declarations; it does not compile SwiftUI/UIKit or test iOS
-lifecycle behavior. Native results must be recorded for the exact candidate.
+The same code revision passed 324 core tests on Linux and Windows in
+[core CI](https://github.com/sqcode06/accountant-app/actions/runs/34794280417).
+A temporary Linux package also passed all 58 app-logic tests, substituting only
+observation declarations. SwiftUI/UIKit and lifecycle evidence comes from the
+native run above. Later documentation-only changes preserve the tested code;
+subsequent code changes require fresh native results.
 
 REL-04 remains open: replacement of previously healthy stores is still three
 separate writes, so interrupted/failed restore or erase needs a coherent snapshot
@@ -82,7 +90,7 @@ Evidence obtained during the original review (before implementation):
   unchanged production helper and test files. This did not build the app.
 - The changed budget files passed syntax parsing. Parsing does not type-check
   SwiftUI or verify interactions.
-- The new `BudgetWorkflowTests` has not run in the native app test target.
+- At that point, `BudgetWorkflowTests` had not run in the native app test target.
 - AppState reproductions below used unchanged production sources, real or
   controlled repositories, and minimal Linux observation shims. They test state
   and persistence logic, not SwiftUI, UIKit, or iOS lifecycle behavior.
@@ -237,8 +245,9 @@ exit honestly; simulator success alone does not identify its cause.
 
 Gate **PR** means a required pull-request check. **Broad** means scheduled and
 pre-release execution. **Device** means a recorded hardware check. P0 cases
-block release; P1 is the remaining essential workflow coverage. The fixtures
-listed here are to be implemented, not claimed to exist already.
+block release; P1 is the remaining essential workflow coverage. This is the
+target coverage; the implementation update above records completed evidence.
+The remaining scenarios still need fixtures and execution.
 
 | Area / priority | Fixture and expected behavior | Layers and gate |
 | --- | --- | --- |
@@ -249,7 +258,7 @@ listed here are to be implemented, not claimed to exist already.
 | Capture / P0 | Expense, income, transfer; decimal and locale inputs; both Save and Save-and-confirm; invalid/empty input and repeated taps. Create exactly one correctly dated transaction with correct accounts, amount, status, and validation. | Core/app + expense smoke UI: PR; all entry modes/keyboard variants: Broad. |
 | Review and Activity / P1 | Mixed drafts/finalized entries and searchable memos. Review recategorization/confirmation counts once; delete/undo and filters affect their intended transaction/scope; persisted changes survive relaunch. | Core/app: PR; review/search/delete/undo UI: Broad. |
 | Accounts and categories / P1 | New, duplicate/invalid, archived, and referenced accounts. Create/rename/archive/restore persist; validation is visible; budgets and transaction references remain valid. | App: PR; management UI: Broad. |
-| Import and classification / P0 | Valid, dirty, duplicate, locale-specific CSV; exact fee validation; purchase/income fees; safe rejection of ambiguous legacy splits; rule create/edit/pause/reorder/try and save failure. Preview/cancel do not mutate; preview identifies the bank description, proposed category and memo, and matching reason; later case-insensitive substring matches win per field; rules and ordering survive relaunch. The Debug fixture may bypass only the OS document picker, not CSV parsing, preview, review, saving, or relaunch. | Core/app: PR; native import/file/rule UI on iOS 18.5 and 26.2: pending. |
+| Import and classification / P0 | Valid, dirty, duplicate, locale-specific CSV; exact fee validation; purchase/income fees; safe rejection of ambiguous legacy splits; rule create/edit/pause/reorder/try and save failure. Preview/cancel do not mutate; preview identifies the bank description, proposed category and memo, and matching reason; later case-insensitive substring matches win per field; rules and ordering survive relaunch. The Debug fixture may bypass only the OS document picker, not CSV parsing, preview, review, saving, or relaunch. | Core/app and native CSV/rule journeys: PR, passed on iOS 18.5 and 26.2. OS document picker: Device. |
 | Reconciliation / P1 | Known statement, multiple accounts/currencies, draft/finalized/cleared entries, as-of boundaries. Correct scope and difference; clearing persists; unrelated data is preserved. | Core/app: PR; reconciliation UI: Broad. |
 | Export and backup restore / P0 | Full three-store backup, previous supported format, duplicate IDs, unsupported/corrupt backup, failed write. Export round-trips supported data; cancel/rejection is inert; restore is consistent after failure/relaunch. | Core/app real-file: PR; file-picker/share/restore UI: Broad + Device. |
 | Onboarding and settings / P1 | Fresh and already configured data. Setup is idempotent and optional where designed; currency/settings persist; revisiting setup preserves existing data. | App: PR; onboarding/settings UI: Broad. |

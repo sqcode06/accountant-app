@@ -11,14 +11,16 @@ The iOS app sits above `AccountantCore`. The core package already protects the a
 This document describes the app-level testing layer. The
 [reliability review and testing plan](AppReliabilityPlan.md) records the gaps
 found on 2026-09-13, the repair priorities, native CI prerequisites, and the
-expected-behavior matrix. A native CI gate and the first behavioral UI workflow
-are checked in. Revision `f9c2af3` passed its first
-[native run](https://github.com/sqcode06/accountant-app/actions/runs/34783889829):
-a Release build, 46 app tests, and two UI tests on iOS 18.5. A subsequent device
-report on iOS 26.2 exposed an untested empty-category state and button layout.
-The gate now includes both runtimes and a regression for that state. Check the
-results for the revision being built; the earlier pass covers only its own code
-and scenarios. Linux cannot validate an iOS build or simulator interaction.
+expected-behavior matrix. Code revision `d87a44d` passed a Release build,
+58 app tests, and five UI tests on each of iOS 18.5 and iOS 26.2 in
+[native CI](https://github.com/sqcode06/accountant-app/actions/runs/34794280441).
+The same revision passed 324 core tests (318 XCTest and six Swift Testing tests)
+on both Linux and Windows in
+[core CI](https://github.com/sqcode06/accountant-app/actions/runs/34794280417).
+The native gate covers the empty-category Budget regression, capture and
+confirmation, and the import-rule journeys below. Broader workflow coverage and
+hardware checks remain in the reliability plan. Later documentation-only
+changes do not alter this tested code; new code changes need their own results.
 
 ## Current strategy
 
@@ -49,11 +51,19 @@ an imported purchase or income can have a separate fee posting, malformed CSV
 fee values are rejected exactly, and a legacy split with an ambiguous
 counterparty is left unchanged rather than guessed.
 
-The native import journey uses the Debug-only isolated fixture to bypass only the
-OS document picker. It still runs real CSV parsing, import preview, rule review,
-save, and relaunch behavior. Execution on both iOS 18.5 and iOS 26.2 remains
-pending for the candidate revision; the fixture and tests are not evidence of a
-passing native run by themselves.
+The native import journey uses a real five-row Revolut CSV in the Debug-only
+isolated fixture. It bypasses only the OS document picker. Both runtimes passed
+CSV parsing, category and description previews, purchase recategorization with
+its fee preserved, income and refund checks, batch confirmation, and persisted
+Activity/search results after relaunch. A separate UI journey passed rule
+creation, editing, pausing, try-match, a real drag to reorder, and relaunch.
+
+On iOS 18, SwiftUI's review-menu accessibility wrappers report non-hittable
+even when the menu responds to touch. The test checks that the enabled menu's
+whole frame is between the navigation and tab bars, then taps its centre when
+needed. It requires the category menu to open and the intended purchase to
+change category while retaining its separate fee. Screenshots capture the open
+menu and corrected review. Physical-device file selection remains a manual check.
 
 ## Test repository
 
