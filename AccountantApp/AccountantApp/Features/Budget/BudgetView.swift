@@ -89,10 +89,10 @@ struct BudgetView: View {
                     HStack(spacing: Metrics.Space.s) {
                         ProgressView()
                         Text("Saving…")
+                            .accessibilityIdentifier("budget.stop.saving")
                     }
                     .font(.uiCaption)
                     .foregroundStyle(Theme.inkMuted)
-                    .accessibilityIdentifier("budget.stop.saving")
                 }
             } else if didFailToStopBudget && appState.hasUnsavedChanges {
                 Section {
@@ -100,12 +100,12 @@ struct BudgetView: View {
                         Text("The budget change still needs to be saved.")
                             .font(.uiCaption)
                             .foregroundStyle(Theme.inkMuted)
+                            .accessibilityIdentifier("budget.stop.unsaved")
                         Spacer()
                         Button("Retry", action: retryPendingBudgetSave)
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("budget.stop.retry")
                     }
-                    .accessibilityIdentifier("budget.stop.unsaved")
                 }
             }
 
@@ -146,7 +146,6 @@ struct BudgetView: View {
                                 .disabled(isStoppingBudget)
                                 .accessibilityIdentifier("budget.line.stop.\(line.account.id.rawValue.uuidString)")
                             }
-                            .accessibilityIdentifier("budget.line.\(line.account.id.rawValue.uuidString)")
                     }
                 }
             }
@@ -410,6 +409,7 @@ private struct BudgetLineRow: View {
                 Text(line.account.name)
                     .font(.uiRowTitle)
                     .foregroundStyle(Theme.ink)
+                    .accessibilityIdentifier("budget.line.category.\(line.account.id.rawValue.uuidString)")
 
                 Spacer()
 

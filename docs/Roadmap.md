@@ -16,11 +16,14 @@ on the user's iPhone; we have not established its cause.
 
 Before the personal beta, finish these checks:
 
+- Add an account-management screen journey: create, rename, archive, and restore.
+  Check that marking statement entries as cleared saves correctly and that the
+  account screen shows the right balances after reopening.
 - Confirm actual reminder delivery and the permission explanation on an iPhone.
 - Exercise import, backup export, and restore through the real iPhone file
   picker and share sheet; the automated fixtures bypass file selection.
-- Verify LHV's import columns against a real export, then finish the remaining
-  account, budget, review, and reconciliation checks.
+- Verify LHV's import columns against a real export, and finish the remaining
+  budget, review, and accessibility checks.
 
 The [engineering checklist](AppReliabilityPlan.md) keeps the detailed evidence.
 The [TestFlight page](TestFlight.md) keeps distribution steps separate.

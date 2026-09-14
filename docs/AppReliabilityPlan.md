@@ -310,7 +310,8 @@ Two behaviors need an explicit product contract before tests imply they exist:
 full transaction editing (the current detail view offers confirm/delete), and
 notification taps routing directly to Review. These are potential enhancements,
 not established regressions. Existing review recategorization and reminder
-scheduling still require tests now.
+scheduling now have regression coverage; OS notification delivery remains a
+device check.
 
 Each relevant workflow needs success, validation failure, save failure, repeated
 action, and relaunch coverage. Add date and currency boundaries where they can

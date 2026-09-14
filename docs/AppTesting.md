@@ -78,6 +78,17 @@ A second journey injects a failed Stop save, checks the error and Retry button,
 retries, and relaunches. The fault repository is Debug-only and confined to the
 isolated UI-test directory.
 
+The [first native attempt](https://github.com/sqcode06/accountant-app/actions/runs/34867253543)
+at `2de896b` passed both Release builds, the unsigned device archive, and all
+81 app tests on each runtime. Four UI journeys passed; all three Budget journeys
+failed before Stop because a new row-level accessibility identifier replaced
+the amount labels' identifiers. The iOS 26.2 screenshot showed the correct
+EUR 20 limit, and its accessibility hierarchy showed the overwritten IDs.
+The correction puts identifiers on individual labels and finds the containing
+cell for the swipe. It also keeps the Retry button's identifier separate from
+the warning text. The amount, failure, and relaunch assertions are preserved;
+the corrected code requires a fresh native run.
+
 `ReviewReminderControllerTests` uses the actual controller with an injected
 notification service, clock, and calendar. It checks latest-queue replacement,
 empty-queue cancellation, disable winning over an in-flight add or permission

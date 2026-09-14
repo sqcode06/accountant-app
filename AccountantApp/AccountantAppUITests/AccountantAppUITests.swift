@@ -112,9 +112,10 @@ final class AccountantAppUITests: XCTestCase {
         // Stop is an awaited durable action. The category's retained spending is
         // deliberately shown as unbudgeted, so it cannot be mistaken for an
         // active limit after the row disappears.
-        let budgetLine = app.otherElements[
-            "budget.line.00000000-0000-0000-0000-000000000201"
-        ]
+        let budgetLine = app.cells.containing(
+            .staticText,
+            identifier: "budget.line.category.00000000-0000-0000-0000-000000000201"
+        ).firstMatch
         XCTAssertTrue(budgetLine.waitForExistence(timeout: 5))
         budgetLine.swipeLeft()
         let stop = app.buttons[
@@ -130,7 +131,7 @@ final class AccountantAppUITests: XCTestCase {
         ]
         XCTAssertTrue(unbudgeted.waitForExistence(timeout: 5))
         waitUntilEnabled(unbudgeted, message: "Stop should finish before termination")
-        XCTAssertFalse(app.otherElements["budget.stop.unsaved"].exists)
+        XCTAssertFalse(app.staticTexts["budget.stop.unsaved"].exists)
         XCTAssertFalse(app.buttons["budget.stop.retry"].exists)
         XCTAssertTrue(unbudgeted.label.contains("Eating out"))
         XCTAssertTrue(unbudgeted.label.contains("0.10"))
@@ -233,9 +234,10 @@ final class AccountantAppUITests: XCTestCase {
         app.buttons["budget.limit.save"].tap()
         assertBudgetLine(remaining: "20.00", spent: "0.00")
 
-        let budgetLine = app.otherElements[
-            "budget.line.00000000-0000-0000-0000-000000000201"
-        ]
+        let budgetLine = app.cells.containing(
+            .staticText,
+            identifier: "budget.line.category.00000000-0000-0000-0000-000000000201"
+        ).firstMatch
         XCTAssertTrue(budgetLine.waitForExistence(timeout: 5))
         budgetLine.swipeLeft()
         let stop = app.buttons[
@@ -253,14 +255,14 @@ final class AccountantAppUITests: XCTestCase {
         // proof that Stop did not report durability after the injected failure.
         let retry = app.buttons["budget.stop.retry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.otherElements["budget.stop.unsaved"].exists)
+        XCTAssertTrue(app.staticTexts["budget.stop.unsaved"].exists)
         attachScreenshot(named: "Budget stop pending retry after save failure")
         retry.tap()
 
         let setLimit = app.buttons["budget.setLimit.empty"]
         XCTAssertTrue(setLimit.waitForExistence(timeout: 5))
         waitUntilEnabled(setLimit, message: "Retry should finish before termination")
-        XCTAssertFalse(app.otherElements["budget.stop.unsaved"].exists)
+        XCTAssertFalse(app.staticTexts["budget.stop.unsaved"].exists)
         XCTAssertFalse(app.buttons["budget.stop.retry"].exists)
 
         // The retry completed a real JSON save. Terminate immediately instead of
