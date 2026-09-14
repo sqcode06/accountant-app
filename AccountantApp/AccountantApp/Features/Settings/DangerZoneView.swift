@@ -35,7 +35,7 @@ struct DangerZoneView: View {
             } header: {
                 Text("Start over")
             } footer: {
-                Text("Erasing removes transactions, accounts, budgets and import rules from this device. There is no backup and no undo.")
+                Text("Erasing clears the app's current transactions, accounts, budgets and import rules. Existing backups and recovery files are kept. There is no undo.")
             }
 
             Section {
@@ -195,7 +195,7 @@ enum DangerAction: Identifiable {
         case .removeUnusedAccounts:
             "Accounts with no history are deleted. Anything that has appeared in a transaction is kept, because deleting it would leave postings pointing at nothing."
         case .eraseEverything:
-            "Everything on this device is deleted and the setup guide runs again. There is no backup. This cannot be undone."
+            "Your current transactions, accounts, budgets and import rules are cleared, and the setup guide runs again. Existing backups and recovery files are kept. This cannot be undone."
         }
     }
 
