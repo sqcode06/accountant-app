@@ -134,13 +134,9 @@ final class ImportRulesUITests: XCTestCase {
         XCTAssertTrue(fee.label.contains("0.40"), "Fee was not preserved in review: \(fee.label)")
         XCTAssertTrue(fee.label.contains("Bank fees"))
 
-        // iOS 18 exposes the Menu identifier on an outer Button, with the
-        // actual native button beneath it. Later runtimes can tap the outer
-        // element directly. Keep labels on the named Menu and tap its control.
-        let nativeCategoryButton = purchaseCategory.buttons.firstMatch
-        let categoryControl = purchaseCategory.isHittable || !nativeCategoryButton.exists
-            ? purchaseCategory : nativeCategoryButton
-        waitAndTap(categoryControl, description: "Purchase category")
+        tapReviewCategoryMenu(purchaseCategory)
+        XCTAssertTrue(app.buttons["Transport"].waitForExistence(timeout: 5), "Category menu did not open")
+        attachScreenshot(named: "Open purchase category menu")
         waitAndTap(app.buttons["Transport"], description: "Transport category option")
         XCTAssertTrue(waitForLabel(purchaseCategory, containing: "Transport"))
         XCTAssertTrue(fee.label.contains("0.40"), "Recategorising changed the separate fee")
@@ -334,6 +330,45 @@ final class ImportRulesUITests: XCTestCase {
     }
 
     // MARK: - Import and review
+
+    private func tapReviewCategoryMenu(_ menu: XCUIElement) {
+        dismissKeyboard()
+        let surface = activeScrollSurface()
+        let navigationBar = app.navigationBars["Review"]
+        let tabBar = app.tabBars.firstMatch
+
+        func visibleContent() -> CGRect {
+            let top = navigationBar.frame.maxY
+            let bottom = tabBar.frame.minY
+            return CGRect(x: app.frame.minX, y: top, width: app.frame.width, height: bottom - top)
+        }
+        func menuIsVisible() -> Bool {
+            menu.exists && !menu.frame.isEmpty && visibleContent().contains(menu.frame)
+        }
+
+        for _ in 0..<12 {
+            if menuIsVisible() { break }
+            if menu.exists && menu.frame.minY < visibleContent().minY {
+                surface.swipeDown()
+            } else {
+                surface.swipeUp()
+            }
+        }
+        XCTAssertTrue(menu.exists, "Missing purchase category menu")
+        XCTAssertTrue(menu.isEnabled, "Disabled purchase category menu")
+        XCTAssertTrue(menuIsVisible(), "Purchase category menu is outside the visible content")
+        guard menu.exists, menu.isEnabled, menuIsVisible() else { return }
+
+        if menu.isHittable {
+            menu.tap()
+        } else {
+            // On iOS 18, both Menu accessibility button layers can report
+            // non-hittable despite a visible frame. Send a real touch here;
+            // the caller must still prove the menu opens and the correct
+            // purchase changes category without changing its separate fee.
+            menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+    }
 
     private func assertImportRow(
         _ index: Int,
