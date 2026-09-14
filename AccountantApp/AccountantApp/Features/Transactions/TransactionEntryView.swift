@@ -513,13 +513,13 @@ private struct KindTab: View {
 
 #Preview {
     TransactionEntryView()
-        .environmentObject(AppState(repository: TransactionEntryPreviewRepository()))
+        .environmentObject(AppState(dataRepository: TransactionEntryPreviewRepository()))
 }
 
-private struct TransactionEntryPreviewRepository: LedgerRepository {
-    func loadOrCreate() async throws -> Ledger {
-        Ledger()
+private struct TransactionEntryPreviewRepository: AppDataRepository {
+    func load() async -> AppDataLoadResult {
+        AppDataLoadResult(data: LedgerBackup(ledger: Ledger()))
     }
 
-    func save(_ ledger: Ledger) async throws {}
+    func save(_ data: LedgerBackup) async throws {}
 }

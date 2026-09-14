@@ -17,9 +17,7 @@ struct AccountantAppApp: App {
         if let fixture = AppUITestFixture.current() {
             _appState = StateObject(
                 wrappedValue: AppState(
-                    repository: fixture.ledgerRepository,
-                    classificationRuleRepository: fixture.classificationRuleRepository,
-                    budgetRepository: fixture.budgetRepository
+                    dataRepository: fixture.dataRepository
                 )
             )
             _themeManager = StateObject(wrappedValue: ThemeManager(defaults: fixture.defaults))
@@ -33,9 +31,7 @@ struct AccountantAppApp: App {
 
         _appState = StateObject(
             wrappedValue: AppState(
-                repository: LocalJSONLedgerRepository.live(),
-                classificationRuleRepository: LocalJSONClassificationRuleRepository.live(),
-                budgetRepository: LocalJSONBudgetRepository.live()
+                dataRepository: LocalJSONAppDataRepository.live()
             )
         )
         _themeManager = StateObject(wrappedValue: ThemeManager())
@@ -61,7 +57,8 @@ struct AccountantAppApp: App {
         .onChange(of: scenePhase) { _, phase in
             // Writes are debounced, so leaving the app is the one moment where a
             // change could still be sitting in memory. Flushing here is what makes
-            // the debounce safe.
+            // the pending write an immediate opportunity to complete. Abrupt
+            // termination can still precede completion; no power-loss claim is made.
             guard phase != .active else { return }
             Task { await appState.flushPendingWrites() }
         }

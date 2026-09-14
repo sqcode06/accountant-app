@@ -162,13 +162,16 @@ private struct CaptureButton: View {
 
 #Preview {
     ContentView()
-        .environmentObject(AppState(repository: PreviewLedgerRepository()))
+        .environmentObject(AppState(dataRepository: PreviewLedgerRepository()))
         .environmentObject(ThemeManager())
         .environmentObject(OnboardingController())
         .environmentObject(AppIconManager())
 }
 
-private struct PreviewLedgerRepository: LedgerRepository {
-    func loadOrCreate() async throws -> Ledger { Ledger() }
-    func save(_ ledger: Ledger) async throws {}
+private struct PreviewLedgerRepository: AppDataRepository {
+    func load() async -> AppDataLoadResult {
+        AppDataLoadResult(data: LedgerBackup(ledger: Ledger()))
+    }
+
+    func save(_ data: LedgerBackup) async throws {}
 }

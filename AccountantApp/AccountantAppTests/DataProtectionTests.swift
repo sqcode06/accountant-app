@@ -57,7 +57,7 @@ struct DataProtectionTests {
         let files = try RecoveryFiles()
         defer { files.remove() }
         try files.seedThenDamageLedger()
-        let state = files.makeAppState(budgetRepository: FailingRecoveryBudgetRepository())
+        let state = files.makeAppState(failingAt: .beforeCommit)
         await state.loadIfNeeded()
         let record = try #require(state.dataProtection.quarantined.first)
 
@@ -88,11 +88,7 @@ struct DataProtectionTests {
         let files = try RecoveryFiles()
         defer { files.remove() }
         try files.seedThenDamageLedger()
-        let state = AppState(
-            repository: FailingRecoveryCompletionRepository(base: files.ledgerRepository),
-            classificationRuleRepository: files.ruleRepository,
-            budgetRepository: files.budgetRepository
-        )
+        let state = files.makeAppState(failingAt: .beforeRecoveryCompletion)
         await state.loadIfNeeded()
 
         #expect(await state.startFreshAfterDamage() == false)
@@ -103,7 +99,7 @@ struct DataProtectionTests {
     }
 
     @MainActor
-    @Test func restoringBackupResolvesRecoveryOnlyAfterAllStoresAreSaved() async throws {
+    @Test func restoringBackupResolvesRecoveryOnlyAfterSnapshotIsSaved() async throws {
         let files = try RecoveryFiles()
         defer { files.remove() }
         let backup = try files.makeBackup()
@@ -161,11 +157,9 @@ struct DataProtectionTests {
         defer { files.remove() }
         try files.seedThenDamageLedger()
         let gate = GatedRecoveryLedgerRepository()
-        let state = AppState(
-            repository: GatedReplacementRepository(base: files.ledgerRepository, gate: gate),
-            classificationRuleRepository: files.ruleRepository,
-            budgetRepository: files.budgetRepository
-        )
+        let state = AppState(dataRepository: GatedReplacementRepository(
+            base: LocalJSONAppDataRepository(directory: files.directory), gate: gate
+        ))
         await state.loadIfNeeded()
         let backup = try files.makeBackup()
         let replacement = Task { await state.startFreshAfterDamage() }
@@ -190,15 +184,11 @@ struct DataProtectionTests {
     }
 
     @MainActor
-    @Test func failedRuleReplacementKeepsRestoredDataLocked() async throws {
+    @Test func failedSnapshotReplacementKeepsRestoredDataLocked() async throws {
         let files = try RecoveryFiles()
         defer { files.remove() }
         try files.seedThenDamageLedger()
-        let state = AppState(
-            repository: files.ledgerRepository,
-            classificationRuleRepository: FailingRecoveryRuleRepository(base: files.ruleRepository),
-            budgetRepository: files.budgetRepository
-        )
+        let state = files.makeAppState(failingAt: .beforeCommit)
         await state.loadIfNeeded()
         let record = try #require(state.dataProtection.quarantined.first)
         let backup = try files.makeBackup()
@@ -317,52 +307,26 @@ private struct RecoveryFiles {
     }
 
     @MainActor
-    func makeAppState(budgetRepository: (any BudgetRepository)? = nil) -> AppState {
-        AppState(
-            repository: ledgerRepository,
-            classificationRuleRepository: ruleRepository,
-            budgetRepository: budgetRepository ?? self.budgetRepository
-        )
+    func makeAppState(failingAt checkpoint: AppDataStore.Checkpoint? = nil) -> AppState {
+        let store = AppDataStore(directory: directory) { point in
+            if point == checkpoint { throw RecoveryTestError.writeFailed }
+        }
+        return AppState(dataRepository: LocalJSONAppDataRepository(store: store))
     }
 }
 
 private enum RecoveryTestError: Error { case writeFailed }
 
-private struct FailingRecoveryBudgetRepository: BudgetRepository {
-    func loadOrCreate() async throws -> Budget { Budget() }
-    func save(_ budget: Budget) async throws { throw RecoveryTestError.writeFailed }
-}
-
-private struct FailingRecoveryCompletionRepository: LedgerRepository {
-    let base: LocalJSONLedgerRepository
-    func loadOrCreate() async throws -> Ledger { try await base.loadOrCreate() }
-    func load() async -> LedgerLoadOutcome { await base.load() }
-    func save(_ ledger: Ledger) async throws { try await base.save(ledger) }
-    func replaceForRecovery(_ ledger: Ledger) async throws { try await base.replaceForRecovery(ledger) }
-    func completeRecovery() async throws { throw RecoveryTestError.writeFailed }
-}
-
-private struct GatedReplacementRepository: LedgerRepository {
-    let base: LocalJSONLedgerRepository
+private struct GatedReplacementRepository: AppDataRepository {
+    let base: LocalJSONAppDataRepository
     let gate: GatedRecoveryLedgerRepository
-    func loadOrCreate() async throws -> Ledger { try await base.loadOrCreate() }
-    func load() async -> LedgerLoadOutcome { await base.load() }
-    func save(_ ledger: Ledger) async throws { try await base.save(ledger) }
-    func replaceForRecovery(_ ledger: Ledger) async throws {
-        try await gate.save(ledger)
-        try await base.replaceForRecovery(ledger)
+    func load() async -> AppDataLoadResult { await base.load() }
+    func save(_ data: LedgerBackup) async throws { try await base.save(data) }
+    func replaceForRecovery(_ data: LedgerBackup) async throws {
+        try await gate.save(data.ledger)
+        try await base.replaceForRecovery(data)
     }
     func completeRecovery() async throws { try await base.completeRecovery() }
-}
-
-private struct FailingRecoveryRuleRepository: ClassificationRuleRepository {
-    let base: LocalJSONClassificationRuleRepository
-    func loadOrCreate() async throws -> [ClassificationRuleConfiguration] {
-        try await base.loadOrCreate()
-    }
-    func save(_ rules: [ClassificationRuleConfiguration]) async throws {
-        throw RecoveryTestError.writeFailed
-    }
 }
 
 @MainActor

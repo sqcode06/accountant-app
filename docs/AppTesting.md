@@ -65,13 +65,24 @@ needed. It requires the category menu to open and the intended purchase to
 change category while retaining its separate fee. Screenshots capture the open
 menu and corrected review. Physical-device file selection remains a manual check.
 
+## Restore and erase stabilization — 2026-09-14
+
+REL-04 now saves a single validated financial snapshot. The local Linux run
+passed 64 app tests, including real-file interruption cases and controlled
+writer barriers. Native Release builds and the new restore/relaunch/erase/
+relaunch journey are pending on iOS 18.5 and 26.2. No native success is claimed
+for this change until those jobs finish.
+
+The [storage contract](PersistenceRecovery.md) records migration, post-commit
+errors, preserved recovery files, and the limits of fault-injection evidence.
+
 ## Test repository
 
-App tests use an in-memory `LedgerRepository`.
-
-This gives each test a clean ledger and avoids the real Application Support JSON file used by the app at runtime.
-
-The in-memory repository can also inject load/save failures.
+Product code uses `AppDataRepository`. Recovery and snapshot-replacement tests
+use isolated real files and controlled repositories, never the app's real
+Application Support directory. `ComponentRepositoryFixture` is a test-only
+adapter retaining older component mocks for focused unit tests; it is not the
+production persistence path. Preview repositories also use the unified API.
 
 **Note the contract here changed.** Writes used to save first and commit to `AppState` afterwards, so a failed save left the visible ledger untouched. That ordering put a suspension point between reading the ledger and writing it back, which meant two quick actions could each save over the other and one change was silently lost.
 
@@ -79,7 +90,7 @@ Mutations now commit synchronously on the main actor and the write is debounced 
 
 Two consequences for tests:
 
-- **Anything asserting on what reached the repository must await persistence**, or it is racing a 400ms debounce. `await appState.flushPendingWrites()` joins an active writer and returns whether every pending store reached disk. Tests that exercise concurrency use controlled write barriers; a fixed sleep is not a substitute.
+- **Anything asserting on what reached the repository must await persistence**, or it is racing a 400ms debounce. `await appState.flushPendingWrites()` joins an active writer and returns whether the complete pending snapshot reached disk. Tests that exercise concurrency use controlled write barriers; a fixed sleep is not a substitute.
 - A burst of mutations with no flush between them is deliberately *one* write. `archiveAndRestoreAccountRoundTrip` flushes between its two mutations for exactly this reason.
 
 ## What belongs here
@@ -101,8 +112,10 @@ Good app-state tests:
 and relaunch after damage, all seven combinations of damaged stores, failed
 replacement/completion, and preservation of quarantined bytes. Concurrent edits
 and a second recovery action are refused while replacement is running. The
-previously healthy three-file restore/erase transaction remains a separate open
-repair; these tests do not establish atomic replacement for that path.
+healthy restore/erase path is now covered by `SnapshotReplacementTests` and
+`AppDataStoreTests`, including interruption before/after the atomic commit and
+recovery completion. Whole-state replacements keep the old visible state until
+saving succeeds; they do not use the ordinary edit debounce.
 
 ## What remains outside the first native gate
 

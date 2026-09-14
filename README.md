@@ -489,7 +489,10 @@ Important properties:
 
 ## Persistence
 
-`JSONLedgerStore` saves and loads ledgers using a versioned `PersistedLedger`.
+The iOS app uses `AppDataStore` to save the ledger, budget and import rules in
+one atomic, versioned snapshot. Existing three-file installations migrate on
+their first successful save. The core's standalone `JSONLedgerStore` remains
+available for ledger-only integrations.
 
 Current persistence is intentionally simple:
 
@@ -504,7 +507,9 @@ An unreadable file is **protected rather than overwritten**. A durable recovery
 record is written before moving its bytes aside, and normal saves remain
 blocked across retries and relaunches. Explicit recovery keeps those originals
 and unlocks only after the replacement data is saved. Restore and erase from a
-previously healthy state still need a coherent transaction across all files.
+previously healthy state now commit the whole snapshot together. The
+[recovery contract](docs/PersistenceRecovery.md) explains interruption behavior,
+retained recovery files, and compatibility with older builds.
 
 `LedgerBackup` is the export format — ledger, budget and classification rules in one document, with its own format version separate from the ledger schema version. `LedgerExport` writes the same data as CSV for spreadsheets. Both share the store's date strategy, because a backup written with a different encoding is one this app cannot read back.
 

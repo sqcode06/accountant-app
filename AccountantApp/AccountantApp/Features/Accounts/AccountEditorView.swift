@@ -228,13 +228,13 @@ struct AccountEditorView: View {
 
 #Preview("Create account") {
     AccountEditorView(mode: .create)
-        .environmentObject(AppState(repository: AccountEditorPreviewRepository()))
+        .environmentObject(AppState(dataRepository: AccountEditorPreviewRepository()))
 }
 
-private struct AccountEditorPreviewRepository: LedgerRepository {
-    func loadOrCreate() async throws -> Ledger {
-        Ledger()
+private struct AccountEditorPreviewRepository: AppDataRepository {
+    func load() async -> AppDataLoadResult {
+        AppDataLoadResult(data: LedgerBackup(ledger: Ledger()))
     }
 
-    func save(_ ledger: Ledger) async throws {}
+    func save(_ data: LedgerBackup) async throws {}
 }

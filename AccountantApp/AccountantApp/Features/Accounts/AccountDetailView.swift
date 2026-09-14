@@ -294,7 +294,7 @@ private struct EntryRow: View {
     NavigationStack {
         AccountDetailView(accountID: AccountDetailPreviewData.bankID)
             .environmentObject(
-                AppState(repository: AccountDetailPreviewRepository())
+                AppState(dataRepository: AccountDetailPreviewRepository())
             )
     }
 }
@@ -348,10 +348,10 @@ private enum AccountDetailPreviewData {
     }
 }
 
-private struct AccountDetailPreviewRepository: LedgerRepository {
-    func loadOrCreate() async throws -> Ledger {
-        AccountDetailPreviewData.makeLedger()
+private struct AccountDetailPreviewRepository: AppDataRepository {
+    func load() async -> AppDataLoadResult {
+        AppDataLoadResult(data: LedgerBackup(ledger: AccountDetailPreviewData.makeLedger()))
     }
 
-    func save(_ ledger: Ledger) async throws {}
+    func save(_ data: LedgerBackup) async throws {}
 }

@@ -17,20 +17,12 @@ final class AppState: ObservableObject {
 
     @Published var lastError: AppError?
 
-    private let repository: LedgerRepository
-    private let classificationRuleRepository: ClassificationRuleRepository
-    private let budgetRepository: BudgetRepository
+    private let dataRepository: any AppDataRepository
     private var didAttemptInitialLoad = false
     private var isReplacingData = false
 
-    init(
-        repository: LedgerRepository,
-        classificationRuleRepository: ClassificationRuleRepository = EmptyClassificationRuleRepository(),
-        budgetRepository: BudgetRepository = EmptyBudgetRepository()
-    ) {
-        self.repository = repository
-        self.classificationRuleRepository = classificationRuleRepository
-        self.budgetRepository = budgetRepository
+    init(dataRepository: any AppDataRepository) {
+        self.dataRepository = dataRepository
         self.ledger = Ledger()
         self.isLoading = false
         self.classificationRules = []
@@ -39,47 +31,18 @@ final class AppState: ObservableObject {
     }
 
     func loadIfNeeded() async {
-        guard !didAttemptInitialLoad else { return }
+        guard !didAttemptInitialLoad, !isReplacingData else { return }
 
         didAttemptInitialLoad = true
         isLoading = true
         defer { isLoading = false }
 
-        var damage: [QuarantineRecord] = []
-
-        switch await repository.load() {
-        case let .loaded(loaded): ledger = loaded
-        case .empty: ledger = Ledger()
-        case let .unreadable(record):
-            ledger = Ledger()
-            damage.append(record)
-        }
-
-        switch await classificationRuleRepository.load() {
-        case let .loaded(rules): classificationRules = rules
-        case .empty: classificationRules = []
-        case let .unreadable(record):
-            classificationRules = []
-            damage.append(record)
-        }
-
-        switch await budgetRepository.load() {
-        case let .loaded(loaded): budget = loaded
-        case .empty: budget = Budget()
-        case let .unreadable(record):
-            budget = Budget()
-            damage.append(record)
-        }
-
-        // Any damage locks writing. The in-memory state is empty but the real data
-        // is sitting in a quarantine file, and the one thing that must not happen
-        // is saving this emptiness over it.
-        if damage.isEmpty {
-            dataProtection = .ok
-            lastError = nil
-        } else {
-            dataProtection = .locked(damage)
-        }
+        let loaded = await dataRepository.load()
+        ledger = loaded.data.ledger
+        budget = loaded.data.budget
+        classificationRules = loaded.data.classificationRules
+        dataProtection = loaded.damage.isEmpty ? .ok : .locked(loaded.damage)
+        if loaded.damage.isEmpty { lastError = nil }
     }
 
     // MARK: - Data protection
@@ -109,7 +72,7 @@ final class AppState: ObservableObject {
     @discardableResult
     func startFreshAfterDamage() async -> Bool {
         guard isDataLocked else { return false }
-        return await replaceDamagedData(with: LedgerBackup(ledger: Ledger()))
+        return await replaceAllData(with: LedgerBackup(ledger: Ledger()))
     }
 
     /// Tries the load again — for when the cause was transient, such as the file
@@ -121,8 +84,8 @@ final class AppState: ObservableObject {
     }
 
     private func refuseWriteWhileLocked() -> Bool {
-        guard !isReplacingData else {
-            lastError = AppError(message: "Please wait for data recovery to finish before making changes.")
+        guard !isReplacingData, !isLoading else {
+            lastError = AppError(message: "Please wait for your data to finish saving before making changes.")
             return true
         }
         guard isDataLocked else { return false }
@@ -138,10 +101,10 @@ final class AppState: ObservableObject {
         return true
     }
 
-    /// The three stores remain protected until every replacement is on disk.
-    /// This path deliberately bypasses ordinary (locked) saving and never
-    /// schedules an automatic retry of a destructive replacement.
-    private func replaceDamagedData(with backup: LedgerBackup) async -> Bool {
+    /// Whole-state replacements own the writer until they finish. The old
+    /// visible state stays intact until the single snapshot commit succeeds.
+    /// A failed destructive operation is never queued for automatic retry.
+    private func replaceAllData(with backup: LedgerBackup) async -> Bool {
         guard !isReplacingData, !isLoading else { return false }
         isReplacingData = true
         defer { isReplacingData = false }
@@ -149,31 +112,45 @@ final class AppState: ObservableObject {
         flushTask?.cancel()
         flushTask = nil
         if let activeFlush { _ = await activeFlush.value }
-        pending = PendingWrites()
         lastError = nil
 
         do {
-            try await repository.replaceForRecovery(backup.ledger)
-            try await budgetRepository.replaceForRecovery(backup.budget)
-            try await classificationRuleRepository.replaceForRecovery(backup.classificationRules)
-
-            // Never clear a durable recovery record while another replacement
-            // still needs saving. Interruption before this point stays locked.
-            try await repository.completeRecovery()
-            try await budgetRepository.completeRecovery()
-            try await classificationRuleRepository.completeRecovery()
+            if isDataLocked {
+                try await dataRepository.replaceForRecovery(backup)
+                try await dataRepository.completeRecovery()
+            } else {
+                try await dataRepository.save(backup)
+            }
         } catch {
+            // An error can arrive after a commit (for example while completing
+            // recovery). Re-read the authority to detect protection or a fully
+            // committed replacement, without discarding unsaved old edits on a
+            // pre-commit failure. Never allow a stale writer to resurrect them.
+            let loaded = await dataRepository.load()
+            if !loaded.damage.isEmpty {
+                dataProtection = .locked(loaded.damage)
+            } else if loaded.data.ledger == backup.ledger,
+                      loaded.data.budget == backup.budget,
+                      loaded.data.classificationRules == backup.classificationRules {
+                acceptReplacement(backup)
+            }
             lastError = AppError(error)
             return false
         }
 
+        acceptReplacement(backup)
+        lastError = nil
+        return true
+    }
+
+    private func acceptReplacement(_ backup: LedgerBackup) {
         ledger = backup.ledger
         budget = backup.budget
         classificationRules = backup.classificationRules
+        pending = PendingWrites()
+        persistenceErrorID = nil
         dismissUndo()
         dataProtection = .ok
-        lastError = nil
-        return true
     }
 
     // MARK: - Persistence
@@ -242,41 +219,18 @@ final class AppState: ObservableObject {
         guard !isDataLocked else { return false }
         guard !pending.isEmpty else { return true }
 
-        var failure: Error?
-
-        if pending.ledger {
-            pending.ledger = false
-            do {
-                try await repository.save(ledger)
-            } catch {
-                // Stay dirty so the next flush tries again.
-                pending.ledger = true
-                failure = failure ?? error
-            }
-        }
-
-        if pending.budget {
-            pending.budget = false
-            do {
-                try await budgetRepository.save(budget)
-            } catch {
-                pending.budget = true
-                failure = failure ?? error
-            }
-        }
-
-        if pending.rules {
-            pending.rules = false
-            do {
-                try await classificationRuleRepository.save(classificationRules)
-            } catch {
-                pending.rules = true
-                failure = failure ?? error
-            }
-        }
-
-        if let failure {
-            let error = AppError(failure)
+        // Capture all components before suspension. Edits arriving during the
+        // write set fresh pending flags and the shared writer drains them next.
+        let snapshot = LedgerBackup(ledger: ledger, budget: budget,
+                                    classificationRules: classificationRules)
+        pending = PendingWrites()
+        do {
+            try await dataRepository.save(snapshot)
+        } catch {
+            // The unit of retry is the whole snapshot, including changes that
+            // arrived while this save was suspended.
+            pending = PendingWrites(ledger: true, budget: true, rules: true)
+            let error = AppError(error)
             lastError = error
             persistenceErrorID = error.id
             return false
@@ -685,8 +639,7 @@ final class AppState: ObservableObject {
         budget = updatedBudget
         lastError = nil
 
-        // Both stores are marked dirty before either is written, so a failure part
-        // way through leaves the other still pending rather than silently dropped.
+        // Both changes are included in the same atomic snapshot.
         scheduleFlush {
             $0.ledger = true
             $0.budget = true
@@ -714,49 +667,15 @@ final class AppState: ObservableObject {
             return false
         }
 
-        if isDataLocked { return await replaceDamagedData(with: backup) }
-
-        ledger = backup.ledger
-        budget = backup.budget
-        classificationRules = backup.classificationRules
-        lastError = nil
-
-        // The undo offer points at a transaction from the ledger that was just
-        // replaced. Putting it back would insert a stranger into the restored data.
-        dismissUndo()
-
-        scheduleFlush {
-            $0.ledger = true
-            $0.budget = true
-            $0.rules = true
-        }
-        return await flushPendingWrites()
+        return await replaceAllData(with: backup)
     }
 
-    /// Erases everything — ledger, budget and import rules.
-    ///
-    /// Each store is written separately, so a mid-way failure can leave the app
-    /// partly erased. That is reported rather than hidden: the alternative is
-    /// pretending a wipe succeeded when the budget file is still on disk.
+    /// Erases ledger, budget and import rules in one awaited snapshot commit.
+    /// An interrupted replacement leaves a complete old/new state or recovery
+    /// protection; it cannot publish only part of the erase.
     @discardableResult
     func eraseAllData() async -> Bool {
-        guard !isReplacingData, !isLoading else { return false }
-        if isDataLocked {
-            return await replaceDamagedData(with: LedgerBackup(ledger: Ledger()))
-        }
-
-        ledger = Ledger()
-        budget = Budget()
-        classificationRules = []
-        lastError = nil
-        dismissUndo()
-
-        scheduleFlush {
-            $0.ledger = true
-            $0.budget = true
-            $0.rules = true
-        }
-        return await flushPendingWrites()
+        await replaceAllData(with: LedgerBackup(ledger: Ledger()))
     }
 
     /// Clears every monthly limit, leaving the ledger alone.

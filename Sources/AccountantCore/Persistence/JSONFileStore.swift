@@ -5,11 +5,35 @@ import Foundation
 public struct JSONFileStore<Value: Codable & Sendable>: Sendable {
     private let fileURL: URL
     private let fallback: @Sendable () -> Value
+    private let encode: @Sendable (Value) throws -> Data
+    private let decode: @Sendable (Data) throws -> Value
+    private let writeData: @Sendable (Data, URL) throws -> Void
 
     /// - Parameter fallback: what `empty` means for this value — `Budget()`, `[]`.
     public init(fileURL: URL, fallback: @escaping @Sendable () -> Value) {
+        self.init(fileURL: fileURL, fallback: fallback, encode: { value in
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            return try encoder.encode(value)
+        }, decode: { try JSONDecoder().decode(Value.self, from: $0) })
+    }
+
+    /// Internal codec/write seam for versioned aggregate stores. All paths keep
+    /// the same quarantine checks; tests can stop at the atomic commit boundary.
+    init(
+        fileURL: URL,
+        fallback: @escaping @Sendable () -> Value,
+        encode: @escaping @Sendable (Value) throws -> Data,
+        decode: @escaping @Sendable (Data) throws -> Value,
+        writeData: @escaping @Sendable (Data, URL) throws -> Void = {
+            try $0.write(to: $1, options: .atomic)
+        }
+    ) {
         self.fileURL = fileURL
         self.fallback = fallback
+        self.encode = encode
+        self.decode = decode
+        self.writeData = writeData
     }
 
     /// True when an unfinished recovery, a malformed sidecar, or an unadopted
@@ -127,7 +151,7 @@ public struct JSONFileStore<Value: Codable & Sendable>: Sendable {
 
     private func readValue() throws -> Value {
         let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder().decode(Value.self, from: data)
+        return try decode(data)
     }
 
     private func write(_ value: Value) throws {
@@ -135,9 +159,7 @@ public struct JSONFileStore<Value: Codable & Sendable>: Sendable {
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(value).write(to: fileURL, options: [.atomic])
+        try writeData(encode(value), fileURL)
     }
 
     private func ensureOrdinarySaveIsSafe() throws {

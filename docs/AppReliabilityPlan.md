@@ -9,7 +9,7 @@ independently reproduced the principal persistence failures.
 **Status: the Budget and import-rule workflows passed native CI on iOS 18.5
 and iOS 26.2; further stabilization remains open.** The disabled, stretched
 empty-budget action has a regression test on both runtimes. The reported Stop
-exit remains undiagnosed, and coherent restore/erase remains the next repair.
+exit remains undiagnosed, and native verification of coherent restore/erase is in progress.
 
 ## Implementation update — 2026-09-14
 
@@ -63,11 +63,15 @@ observation declarations. SwiftUI/UIKit and lifecycle evidence comes from the
 native run above. Later documentation-only changes preserve the tested code;
 subsequent code changes require fresh native results.
 
-REL-04 remains open: replacement of previously healthy stores is still three
-separate writes, so interrupted/failed restore or erase needs a coherent snapshot
-and migration in the next milestone. Standalone budget/rule files also need the
-combined validation boundary that a snapshot provides. Stop still has a
-debounced write window. These limitations block a reliability release.
+REL-04 implementation now uses one schema-5 financial snapshot at the existing
+ledger path. Legacy versions 1–4 and their companions are validated together;
+the first save performs an atomic migration. Restore/erase serialize with older
+writers and cannot leave a silently editable mixture. The original failing
+regression and checkpoint/barrier tests pass locally. Native validation of this
+revision is pending; see [PersistenceRecovery.md](PersistenceRecovery.md) for the
+interruption, migration, recovery-file retention, and downgrade contracts.
+Stop still has a debounced write window and its reported exit remains
+undiagnosed. This milestone alone does not establish release readiness.
 
 ## Why the existing tests did not catch these problems
 

@@ -39,10 +39,10 @@ struct DangerZoneView: View {
             }
 
             Section {
-                LabeledContent("Transactions", value: "\(appState.ledger.transactions.count)")
-                LabeledContent("Accounts", value: "\(appState.ledger.accounts.count)")
-                LabeledContent("Budget limits", value: "\(appState.budget.targets.count)")
-                LabeledContent("Import rules", value: "\(appState.classificationRules.count)")
+                count("Transactions", value: appState.ledger.transactions.count, key: "transactions")
+                count("Accounts", value: appState.ledger.accounts.count, key: "accounts")
+                count("Budget limits", value: appState.budget.targets.count, key: "budgets")
+                count("Import rules", value: appState.classificationRules.count, key: "rules")
             } header: {
                 Text("What is here now")
             }
@@ -63,6 +63,7 @@ struct DangerZoneView: View {
             Button(action.confirmButtonTitle, role: .destructive) {
                 perform(action)
             }
+            .accessibilityIdentifier(action.confirmAccessibilityIdentifier)
             Button("Cancel", role: .cancel) {}
         } message: { action in
             Text(action.consequence)
@@ -86,6 +87,16 @@ struct DangerZoneView: View {
             .padding(.vertical, Metrics.Space.xs)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(action.accessibilityIdentifier)
+    }
+
+    private func count(_ title: String, value: Int, key: String) -> some View {
+        LabeledContent {
+            Text("\(value)")
+                .accessibilityIdentifier("danger.count.\(key)")
+        } label: {
+            Text(title)
+        }
     }
 
     private func perform(_ action: DangerAction) {
@@ -120,6 +131,24 @@ enum DangerAction: Identifiable {
     case eraseEverything
 
     var id: String { title }
+
+    var accessibilityIdentifier: String {
+        switch self {
+        case .clearTransactions: "danger.clearTransactions"
+        case .clearBudget: "danger.clearBudget"
+        case .removeUnusedAccounts: "danger.removeUnusedAccounts"
+        case .eraseEverything: "danger.erase"
+        }
+    }
+
+    var confirmAccessibilityIdentifier: String {
+        switch self {
+        case .clearTransactions: "danger.confirmClearTransactions"
+        case .clearBudget: "danger.confirmClearBudget"
+        case .removeUnusedAccounts: "danger.confirmRemoveUnusedAccounts"
+        case .eraseEverything: "danger.confirmErase"
+        }
+    }
 
     var isSevere: Bool {
         self == .eraseEverything

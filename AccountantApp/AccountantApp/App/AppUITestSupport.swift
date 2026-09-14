@@ -16,9 +16,7 @@ struct AppUITestFixture {
     static let ledgerSeedVariable = "ACCOUNTANT_UI_TEST_LEDGER_SEED"
     static let importRulesSeed = "import-rules"
 
-    let ledgerRepository: LocalJSONLedgerRepository
-    let classificationRuleRepository: LocalJSONClassificationRuleRepository
-    let budgetRepository: LocalJSONBudgetRepository
+    let dataRepository: LocalJSONAppDataRepository
     let defaults: UserDefaults
     let clock: AppClock
 
@@ -49,11 +47,21 @@ struct AppUITestFixture {
             )
 
             let ledgerURL = fixtureDirectory.appendingPathComponent("ledger.json")
+            let seededURL = fixtureDirectory.appendingPathComponent("fixture-seeded")
             let ledgerSeed = LedgerSeed(
                 rawValue: environment[ledgerSeedVariable] ?? ""
             ) ?? .standard
-            if !FileManager.default.fileExists(atPath: ledgerURL.path) {
-                try JSONLedgerStore(fileURL: ledgerURL).save(makeLedger(seed: ledgerSeed))
+            if !FileManager.default.fileExists(atPath: seededURL.path) {
+                if !FileManager.default.fileExists(atPath: ledgerURL.path) {
+                    try JSONLedgerStore(fileURL: ledgerURL).save(makeLedger(seed: ledgerSeed))
+                }
+                try Data().write(to: seededURL, options: .atomic)
+            }
+            if ledgerSeed == .restoreErase {
+                let backupURL = fixtureDirectory.appendingPathComponent("restore-backup.json")
+                if !FileManager.default.fileExists(atPath: backupURL.path) {
+                    try LedgerBackupCoder.encode(makeRestoreBackup()).write(to: backupURL, options: .atomic)
+                }
             }
 
             let importStatementURL = fixtureDirectory
@@ -74,13 +82,7 @@ struct AppUITestFixture {
                 ?? Date(timeIntervalSince1970: 1_789_300_800) // 2026-09-13 12:00 UTC
 
             return AppUITestFixture(
-                ledgerRepository: LocalJSONLedgerRepository(fileURL: ledgerURL),
-                classificationRuleRepository: LocalJSONClassificationRuleRepository(
-                    fileURL: fixtureDirectory.appendingPathComponent("classification-rules.json")
-                ),
-                budgetRepository: LocalJSONBudgetRepository(
-                    fileURL: fixtureDirectory.appendingPathComponent("budget.json")
-                ),
+                dataRepository: LocalJSONAppDataRepository(directory: fixtureDirectory),
                 defaults: defaults,
                 clock: .fixed(fixedDate)
             )
@@ -111,10 +113,49 @@ struct AppUITestFixture {
         return url
     }
 
+    static func restoreBackupURL(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        guard arguments.contains(launchArgument),
+              environment[ledgerSeedVariable] == LedgerSeed.restoreErase.rawValue else { return nil }
+        let directory = fixtureDirectory(runID: sanitized(environment[runIDVariable] ?? "local"))
+        let url = directory.appendingPathComponent("restore-backup.json")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private static func makeRestoreBackup() throws -> LedgerBackup {
+        let eur = Currency("EUR")
+        let date = Date(timeIntervalSince1970: 1_789_300_800)
+        let bank = Account(id: AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000401")!),
+                           name: "Restored Bank", kind: .asset, currency: eur)
+        let groceries = Account(id: AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000402")!),
+                                name: "Restored Groceries", kind: .expense)
+        let salary = Account(id: AccountID(UUID(uuidString: "00000000-0000-0000-0000-000000000403")!),
+                             name: "Restored Salary", kind: .income)
+        var ledger = Ledger()
+        for account in [bank, groceries, salary] { ledger.addAccount(account) }
+        let expense = try Transaction.draftExpense(paidFrom: bank.id, category: groceries.id,
+            amount: Money(25, currency: eur), date: date, memo: "Restored groceries")
+        try ledger.addTransaction(expense)
+        try ledger.finalizeTransaction(id: expense.id, now: date)
+        let income = try Transaction.draftIncome(receivedIn: bank.id, source: salary.id,
+            amount: Money(100, currency: eur), date: date, memo: "Restored salary")
+        try ledger.addTransaction(income)
+        var budget = Budget()
+        try budget.setTarget(amount: Money(300, currency: eur), for: groceries.id,
+                             from: BudgetPeriod(year: 2026, month: 9), in: ledger)
+        return LedgerBackup(createdAt: date, ledger: ledger, budget: budget,
+            classificationRules: [ClassificationRuleConfiguration(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000601")!,
+                needle: "RESTORED SHOP", counterpartyAccountID: groceries.id)])
+    }
+
     private enum LedgerSeed: String {
         case standard
         case noActiveExpense = "no-active-expense"
         case importRules = "import-rules"
+        case restoreErase = "restore-erase"
     }
 
     private static func makeLedger(seed: LedgerSeed) -> Ledger {
@@ -133,7 +174,7 @@ struct AppUITestFixture {
             )
         )
         switch seed {
-        case .standard:
+        case .standard, .restoreErase:
             ledger.addAccount(
                 Account(
                     id: eatingOutID,

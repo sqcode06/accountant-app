@@ -156,14 +156,14 @@ private struct AccountRowView: View {
 #Preview {
     NavigationStack {
         AccountListView()
-            .environmentObject(AppState(repository: AccountListPreviewRepository()))
+            .environmentObject(AppState(dataRepository: AccountListPreviewRepository()))
     }
 }
 
-private struct AccountListPreviewRepository: LedgerRepository {
-    func loadOrCreate() async throws -> Ledger {
-        Ledger()
+private struct AccountListPreviewRepository: AppDataRepository {
+    func load() async -> AppDataLoadResult {
+        AppDataLoadResult(data: LedgerBackup(ledger: Ledger()))
     }
 
-    func save(_ ledger: Ledger) async throws {}
+    func save(_ data: LedgerBackup) async throws {}
 }

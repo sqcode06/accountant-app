@@ -95,21 +95,32 @@ struct ImportRuleManagementTests {
         let fixture = RuleManagementFixture()
         let first = fixture.rule(needle: "shop", category: fixture.groceries, memo: "Groceries")
         let second = fixture.rule(needle: "shop", category: fixture.transport, memo: "Transport")
-        let fileURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("rule-management-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rule-management-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
 
-        let rules = LocalJSONClassificationRuleRepository(fileURL: fileURL)
-        try await rules.save([first, second])
-        let ledger = RuleManagementLedgerRepository(ledger: fixture.ledger)
-        let state = AppState(repository: ledger, classificationRuleRepository: rules)
+        // Seed the pre-snapshot layout so the first save must migrate all three
+        // component files into the unified repository.
+        try JSONLedgerStore(fileURL: directory.appendingPathComponent("ledger.json"))
+            .save(fixture.ledger)
+        try JSONFileStore<Budget>(
+            fileURL: directory.appendingPathComponent("budget.json"),
+            fallback: { Budget() }
+        ).save(Budget())
+        try JSONFileStore<[ClassificationRuleConfiguration]>(
+            fileURL: directory.appendingPathComponent("classification-rules.json"),
+            fallback: { [] }
+        ).save([first, second])
+
+        let dataRepository = LocalJSONAppDataRepository(directory: directory)
+        let state = AppState(dataRepository: dataRepository)
         await state.loadIfNeeded()
 
         #expect(state.classificationRuleTest(sampleDescription: "shop today").suggestion?.counterpartyAccountID == fixture.transport.id)
         #expect(await state.moveClassificationRules(fromOffsets: IndexSet(integer: 0), toOffset: 2))
         #expect(state.classificationRuleTest(sampleDescription: "shop today").suggestion?.counterpartyAccountID == fixture.groceries.id)
 
-        let reloaded = AppState(repository: ledger, classificationRuleRepository: rules)
+        let reloaded = AppState(dataRepository: dataRepository)
         await reloaded.loadIfNeeded()
 
         #expect(reloaded.classificationRules.map(\.id) == [second.id, first.id])

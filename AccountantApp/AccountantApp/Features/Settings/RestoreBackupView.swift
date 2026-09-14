@@ -31,6 +31,7 @@ struct RestoreBackupView: View {
                     Text("Your data has been replaced with the backup and saved.")
                         .font(.uiCaption)
                         .foregroundStyle(Theme.inkMuted)
+                        .accessibilityIdentifier("restore.result")
                 }
             } else if let candidate {
                 comparison(candidate)
@@ -49,20 +50,22 @@ struct RestoreBackupView: View {
                         }
                     }
                     .disabled(isRestoring)
+                    .accessibilityIdentifier("restore.request")
 
                     Button("Choose a different file") {
-                        self.candidate = nil
-                        isPickingFile = true
+                        chooseFile()
                     }
                     .disabled(isRestoring)
+                    .accessibilityIdentifier("restore.chooseDifferentFile")
                 }
             } else {
                 Section {
                     Button {
-                        isPickingFile = true
+                        chooseFile()
                     } label: {
                         Label("Choose a backup file", systemImage: "folder")
                     }
+                    .accessibilityIdentifier("restore.chooseFile")
                 } footer: {
                     Text("Pick a backup exported from this app. Nothing is replaced until you have seen what is in it and confirmed.")
                 }
@@ -94,6 +97,7 @@ struct RestoreBackupView: View {
             Button("Replace everything", role: .destructive) {
                 Task { await restore() }
             }
+            .accessibilityIdentifier("restore.confirm")
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Your current transactions, budget limits and import rules will be replaced by the backup. This cannot be undone.")
@@ -106,11 +110,11 @@ struct RestoreBackupView: View {
     /// replacing 400" is a number you react to.
     private func comparison(_ candidate: Candidate) -> some View {
         Section {
-            row("Transactions", now: appState.ledger.transactions.count, backup: candidate.summary.transactionCount)
-            row("Accounts", now: appState.ledger.accounts.count, backup: candidate.summary.accountCount)
-            row("Awaiting review", now: appState.draftCount, backup: candidate.summary.draftCount)
-            row("Budget limits", now: appState.budget.targets.count, backup: candidate.summary.budgetTargetCount)
-            row("Import rules", now: appState.classificationRules.count, backup: candidate.summary.classificationRuleCount)
+            row("Transactions", key: "transactions", now: appState.ledger.transactions.count, backup: candidate.summary.transactionCount)
+            row("Accounts", key: "accounts", now: appState.ledger.accounts.count, backup: candidate.summary.accountCount)
+            row("Awaiting review", key: "drafts", now: appState.draftCount, backup: candidate.summary.draftCount)
+            row("Budget limits", key: "budgets", now: appState.budget.targets.count, backup: candidate.summary.budgetTargetCount)
+            row("Import rules", key: "rules", now: appState.classificationRules.count, backup: candidate.summary.classificationRuleCount)
         } header: {
             Text(candidate.filename)
         } footer: {
@@ -118,7 +122,7 @@ struct RestoreBackupView: View {
         }
     }
 
-    private func row(_ title: String, now: Int, backup: Int) -> some View {
+    private func row(_ title: String, key: String, now: Int, backup: Int) -> some View {
         HStack {
             Text(title)
                 .font(.uiRowTitle)
@@ -130,6 +134,7 @@ struct RestoreBackupView: View {
                 .font(.figureTrailing)
                 .foregroundStyle(Theme.inkFaint)
                 .strikethrough(now != backup)
+                .accessibilityIdentifier("restore.currentCount.\(key)")
 
             Image(systemName: "arrow.right")
                 .font(.system(size: 9, weight: .bold))
@@ -138,10 +143,25 @@ struct RestoreBackupView: View {
             Text("\(backup)")
                 .font(.figureRow)
                 .foregroundStyle(Theme.ink)
+                .accessibilityIdentifier("restore.backupCount.\(key)")
         }
     }
 
     // MARK: - Loading
+
+    private func chooseFile() {
+        candidate = nil
+        failure = nil
+
+#if DEBUG
+        if let fixtureURL = AppUITestFixture.restoreBackupURL() {
+            handle(.success([fixtureURL]))
+            return
+        }
+#endif
+
+        isPickingFile = true
+    }
 
     private func handle(_ result: Result<[URL], Error>) {
         failure = nil
