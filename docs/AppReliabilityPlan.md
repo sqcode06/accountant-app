@@ -6,10 +6,11 @@ reviews at extra-high effort covered budget interactions, persistence, and test
 coverage. An Astra review at extra-high effort challenged their findings and
 independently reproduced the principal persistence failures.
 
-**Status: the Budget and import-rule workflows passed native CI on iOS 18.5
-and iOS 26.2; further stabilization remains open.** The disabled, stretched
+**Status: the Budget, import-rule, and restore/erase workflows passed native CI
+on iOS 18.5 and iOS 26.2; further stabilization remains open.** The disabled, stretched
 empty-budget action has a regression test on both runtimes. The reported Stop
-exit remains undiagnosed, and native verification of coherent restore/erase is in progress.
+exit remains undiagnosed. REL-04 now has passing interruption and native relaunch
+tests; one intermittent Budget background-state test timeout remains recorded.
 
 ## Implementation update — 2026-09-14
 
@@ -23,7 +24,7 @@ exit remains undiagnosed, and native verification of coherent restore/erase is i
 - REL-03/05: unresolved quarantine records persist across retry, relaunch, and
   movement of the data directory. Ordinary saves cannot overwrite protected
   originals. Start fresh clears ledger, budget, and rules; recovery remains
-  locked until every replacement is saved and recovery completion succeeds.
+  locked until the complete financial snapshot is saved and recovery completion succeeds.
   `DataProtectionTests` exercises all seven nonempty damaged-store combinations,
   replacement/completion failures, concurrent recovery actions, and invalid
   restore input using isolated real files and controlled repositories.
@@ -67,11 +68,28 @@ REL-04 implementation now uses one schema-5 financial snapshot at the existing
 ledger path. Legacy versions 1–4 and their companions are validated together;
 the first save performs an atomic migration. Restore/erase serialize with older
 writers and cannot leave a silently editable mixture. The original failing
-regression and checkpoint/barrier tests pass locally. Native validation of this
-revision is pending; see [PersistenceRecovery.md](PersistenceRecovery.md) for the
-interruption, migration, recovery-file retention, and downgrade contracts.
+regression and checkpoint/barrier tests pass. Final code revision `ad7f40e`
+passed 339 core tests on each of Linux and Windows in
+[core CI](https://github.com/sqcode06/accountant-app/actions/runs/34848732975),
+and a Release build, 64 app tests, and six UI tests on each of iOS 18.5 and
+iOS 26.2 in
+[native CI](https://github.com/sqcode06/accountant-app/actions/runs/34848732888).
+The new UI journey restores, relaunches, erases, and relaunches again, checking
+transactions, accounts, budgets, and rules. See
+[PersistenceRecovery.md](PersistenceRecovery.md) for the interruption, migration,
+recovery-file retention, and downgrade contracts.
+
+During verification, an existing iOS 18.5 Budget test timed out once while
+waiting for a background process state after Home. The final run passed that
+unchanged Budget check, but the timeout's cause remains unconfirmed.
+[AppTesting.md](AppTesting.md) preserves the failed attempt and observed evidence.
+A recurrence needs raw process-state and simulator diagnostics; it must not be
+hidden by accepting an unknown or terminated state.
+
+Next is the Budget Stop save contract and remaining reported budget workflows.
 Stop still has a debounced write window and its reported exit remains
-undiagnosed. This milestone alone does not establish release readiness.
+undiagnosed. The lifecycle-test timeout above is a separate observation.
+Completing REL-04 alone does not establish release readiness.
 
 ## Why the existing tests did not catch these problems
 
@@ -285,9 +303,10 @@ and unresolved defects.
 ## Running native tests without an owned Mac, and later in Xcode
 
 GitHub provides hosted macOS runners, so native CI does not require the user's
-own Mac. The workflow still needs to be implemented and run. Select and record
-an installed Xcode/runtime pair from the runner manifest rather than depending
-on an implicit latest version. [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+own Mac. The checked-in workflow runs Xcode 16.4/iOS 18.5 and Xcode 26.2/iOS 26.2;
+the implementation update above records completed runs. The initial setup
+checklist below is retained for reference. Keep the selected Xcode/runtime pairs
+explicit when changing the gate. [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
 [macOS image manifest](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md).
 
 Clean-checkout prerequisites for milestone 1:

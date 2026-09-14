@@ -3,7 +3,7 @@
 The iOS app sits above `AccountantCore`. The core package already protects the accounting rules, but the app layer still owns important workflow behavior:
 
 - loading a ledger into `AppState`;
-- saving successful mutations through `LedgerRepository`;
+- saving financial snapshots through `AppDataRepository`;
 - surfacing failed writes without losing the user's change;
 - mapping app/domain errors into user-facing messages;
 - connecting account and transaction workflows to the core.
@@ -11,16 +11,12 @@ The iOS app sits above `AccountantCore`. The core package already protects the a
 This document describes the app-level testing layer. The
 [reliability review and testing plan](AppReliabilityPlan.md) records the gaps
 found on 2026-09-13, the repair priorities, native CI prerequisites, and the
-expected-behavior matrix. Code revision `d87a44d` passed a Release build,
-58 app tests, and five UI tests on each of iOS 18.5 and iOS 26.2 in
-[native CI](https://github.com/sqcode06/accountant-app/actions/runs/34794280441).
-The same revision passed 324 core tests (318 XCTest and six Swift Testing tests)
-on both Linux and Windows in
-[core CI](https://github.com/sqcode06/accountant-app/actions/runs/34794280417).
-The native gate covers the empty-category Budget regression, capture and
-confirmation, and the import-rule journeys below. Broader workflow coverage and
-hardware checks remain in the reliability plan. Later documentation-only
-changes do not alter this tested code; new code changes need their own results.
+expected-behavior matrix. The native gate covers the empty-category Budget
+regression, capture and confirmation, import rules, and restore/erase. The
+restore/erase section below records the current revision and verification
+results; the reliability plan retains the earlier milestones. Broader workflow
+coverage and hardware checks remain in that plan. Documentation-only changes
+do not alter tested code; new code changes need their own results.
 
 ## Current strategy
 
@@ -69,9 +65,39 @@ menu and corrected review. Physical-device file selection remains a manual check
 
 REL-04 now saves a single validated financial snapshot. The local Linux run
 passed 64 app tests, including real-file interruption cases and controlled
-writer barriers. Native Release builds and the new restore/relaunch/erase/
-relaunch journey are pending on iOS 18.5 and 26.2. No native success is claimed
-for this change until those jobs finish.
+writer barriers. Code revision `ad7f40e` passed 333 XCTest and six Swift Testing
+tests on each of Linux and Windows in
+[core CI](https://github.com/sqcode06/accountant-app/actions/runs/34848732975).
+That same revision passed a Release build, all 64 app tests, and all six UI
+tests on each of iOS 18.5 and iOS 26.2 in
+[native CI](https://github.com/sqcode06/accountant-app/actions/runs/34848732888).
+The successful final run includes the Budget background/relaunch check that
+timed out once during validation, as described below. Later documentation-only
+commits preserve this tested code.
+
+The new UI journey decodes a backup, checks the replacement counts, confirms
+restore, and verifies both a finalized transaction and a draft awaiting review.
+After relaunch it checks transactions, accounts, budget limits, and import rules;
+it then erases, relaunches again, and verifies all four counts are zero. The
+fixture bypasses only the OS document picker. Physical-device file selection
+remains a manual check. The erase description and confirmation explicitly say
+that existing backups and recovery files remain.
+
+Two native-test findings are preserved:
+
+- iOS 26.2 exposes nested confirmation buttons with the same identifier. The
+  test originally failed before tapping Restore. It now selects the unique leaf
+  inside the presented sheet and still requires it to be enabled and hittable.
+  The corrected restore/erase journey passed on both runtimes at `4a03594`.
+- In [the first `4a03594` attempt](https://github.com/sqcode06/accountant-app/actions/runs/34845977914/attempts/1),
+  the existing iOS 18.5 Budget test timed out waiting for a background process
+  state after Home. The final screenshot showed SpringBoard, and the same
+  helper succeeded four later times in that run. No crash diagnostic identifies
+  the cause; raw process-state observations were not recorded. This is an
+  unresolved intermittent lifecycle-test result, not evidence that the reported
+  Stop exit has been fixed. A recurrence needs process-state and simulator
+  diagnostics, not a weaker assertion. All 64 app tests and the other five UI
+  tests passed; iOS 26.2 passed all 64 app and six UI tests at that revision.
 
 The [storage contract](PersistenceRecovery.md) records migration, post-commit
 errors, preserved recovery files, and the limits of fault-injection evidence.
